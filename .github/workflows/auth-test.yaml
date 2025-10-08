@@ -1,0 +1,38 @@
+name: auth-test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nersc-api:
+    runs-on: [self-hosted, Linux, gpu]
+    steps:
+      - name: Validate running job
+        id: validate_job
+        run: |
+          PAYLOAD_RUN_ID=$(jq -r '.workflow_job.run_id' payload.json)
+          RUNNER_RUN_ID=${{ github.run_id }}
+
+          echo "Payload RUN ID: $PAYLOAD_RUN_ID"
+          echo "Runner RUN ID : $RUNNER_RUN_ID"
+
+          # Compare job IDs and set output
+          if [ "$PAYLOAD_RUN_ID" == "$RUNNER_RUN_ID" ]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "valid=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout github repo
+        id: checkout
+        if: steps.validate_job.outputs.valid == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        id: python_setup
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"

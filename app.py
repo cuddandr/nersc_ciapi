@@ -328,10 +328,14 @@ async def on_startup(app: Litestar) -> None:
     )
     print(f"{WEBHOOK_SECRET}")
 
-    client = AsyncMongoClient(MONGODB_URL)
-    db = client[MONGODB_DB]
-    app.state.mongo_service = MongoDBService(db)
-    print(f"Connected to MongoDB: {MONGODB_URL}/{MONGODB_DB}")
+    client = AsyncMongoClient(MONGODB_URL, )
+    try:
+        await client.admin.command('ping')
+        db = client[MONGODB_DB]
+        app.state.mongo_service = MongoDBService(db)
+        print(f"Connected to MongoDB: {MONGODB_URL}/{MONGODB_DB}")
+    except Exception as e:
+        print(f"Error pinging MongoDB server: {e}")
 
 
 async def on_shutdown(app: Litestar) -> None:
