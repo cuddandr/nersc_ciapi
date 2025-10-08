@@ -13,7 +13,7 @@ jobs:
       - name: Validate running job
         id: validate_job
         run: |
-          PAYLOAD_RUN_ID=$(jq -r '.workflow_job.run_id' payload.json)
+          PAYLOAD_RUN_ID=$(jq -r '.workflow_job.run_id' $PAYLOAD_FILE)
           RUNNER_RUN_ID=${{ github.run_id }}
 
           echo "Payload RUN ID: $PAYLOAD_RUN_ID"
@@ -28,11 +28,12 @@ jobs:
 
       - name: Checkout github repo
         id: checkout
-        if: steps.validate_job.outputs.valid == 'true'
+        # if: steps.validate_job.outputs.valid == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python 3.11
         id: python_setup
+        if: steps.validate_job.outputs.valid == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
