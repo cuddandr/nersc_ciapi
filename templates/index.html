@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="stats">
+    <div class="stat-card">
+        <h3>Total Webhooks</h3>
+        <div class="value">{{ stats.total_webhooks }}</div>
+    </div>
+    {% for event in stats.event_counts[:3] %}
+    <div class="stat-card">
+        <h3>{{ event.event_type }}</h3>
+        <div class="value">{{ event.count }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="filters">
+    <form method="get" style="display: flex; gap: 10px; align-items: center;">
+        <label for="event_type">Filter by Event Type:</label>
+        <select name="event_type" id="event_type" onchange="this.form.submit()">
+            <option value="">All Events</option>
+            {% for event in event_types %}
+            <option value="{{ event }}" {% if selected_event_type == event %}selected{% endif %}>
+                {{ event }}
+            </option>
+            {% endfor %}
+        </select>
+        {% if selected_event_type %}
+        <a href="/" style="color: #f85149;">Clear Filter</a>
+        {% endif %}
+    </form>
+</div>
+
+<h2>Recent Webhooks</h2>
+{% if webhooks %}
+<table>
+    <thead>
+        <tr>
+            <th>Event Type</th>
+            <th>Repository</th>
+            <th>Action</th>
+            <th>Received At</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for webhook in webhooks %}
+        <tr>
+            <td><span class="badge">{{ webhook.event_type }}</span></td>
+            <td>
+                {% if webhook.payload.repository %}
+                {{ webhook.payload.repository.full_name }}
+                {% else %}
+                N/A
+                {% endif %}
+            </td>
+            <td>
+                {% if webhook.payload.action %}
+                {{ webhook.payload.action }}
+                {% else %}
+                -
+                {% endif %}
+            </td>
+            <td class="timestamp">{{ webhook.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td><a href="/webhooks/{{ webhook._id }}">View →</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p style="text-align: center; padding: 40px; color: #8b949e;">
+    No webhooks received yet. Configure your GitHub repository to send webhooks to this endpoint.
+</p>
+{% endif %}
+{% endblock %}

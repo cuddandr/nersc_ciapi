@@ -1,0 +1,30 @@
+---
+  apiVersion: v1
+
+  webhook: github
+
+  ip_range:
+    # obtained from https://api.github.com/meta
+    - "192.30.252.0/22"
+    - "185.199.108.0/22"
+    - "140.82.112.0/20"
+    - "143.55.64.0/20"
+    - "2a0a:a440::/29"
+    - "2606:50c0::/32"
+
+  repository:
+    - name: DUNE/larnd-sim
+      user:
+        dingp: dingp
+        cuddandr: cuddandr
+        mkramer: mkramer
+      branch:
+        - develop
+      webhook_secret: /secrets/dune/larnd-sim/webhook
+      cluster:
+        perlmutter:
+          host: perlmutter.nersc.gov
+          account: dune
+          protocol: sfapi
+          client_id: /secrets/dune/sfapi.client_id.txt
+          private_key: /secrets/dune/sfapi.priv_key.pem
