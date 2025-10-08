@@ -1,0 +1,4 @@
+Authlib
+litestar[standard]
+pymongo
+requests
