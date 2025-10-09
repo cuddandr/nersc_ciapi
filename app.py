@@ -1,6 +1,5 @@
 import logging
-logging.root.handlers = []
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(funcName)s - %(message)s", level=logging.INFO, force=True)
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(funcName)s - %(message)s", level=logging.INFO)
 
 import hashlib, hmac
 import json, yaml
@@ -13,6 +12,7 @@ from authlib.oauth2.rfc7523 import PrivateKeyJWT
 
 from litestar import Litestar, post, get, Request, Response
 from litestar.datastructures import State
+from litestar.logging import LoggingConfig
 from litestar.openapi.config import OpenAPIConfig
 from litestar.openapi.plugins import SwaggerRenderPlugin
 from litestar.contrib.jinja import JinjaTemplateEngine
@@ -238,7 +238,7 @@ async def receive_webhook(
     # Parse JSON payload
     payload = await request.json()
 
-    logging.info("Storing in Mongo.")
+    logging.info("Storing in MongoDB.")
     # Store in MongoDB
     mongo_service: MongoDBService = state.mongo_service
     webhook_id = await mongo_service.store_webhook(
@@ -247,7 +247,6 @@ async def receive_webhook(
 
     logging.info("Checking job admission.")
     permission, nersc_config = check_admission(payload, ADMISSION_CONF)
-    # if not check_admission(payload, ADMISSION_CONF):
     if not permission:
         logging.info("Job not admitted")
         return Response(
@@ -323,12 +322,15 @@ async def on_startup(app: Litestar) -> None:
     """Initialize MongoDB connection on startup"""
     print("Starting GitHub Webhook Receiver...")
     print(f"MongoDB: {MONGODB_URL}/{MONGODB_DB}")
+    print(f"Mongo user: {MONGODB_USER}")
     print(
         f"Webhook Secret: {'Configured' if WEBHOOK_SECRET else 'Not configured (signatures will not be verified)'}"
     )
     print(f"{WEBHOOK_SECRET}")
 
-    client = AsyncMongoClient(MONGODB_URL, )
+    client = AsyncMongoClient(MONGODB_URL,
+                              username=MONGODB_USER,
+                              password=MONGODB_PASS)
     try:
         await client.admin.command('ping')
         db = client[MONGODB_DB]
@@ -346,11 +348,20 @@ async def on_shutdown(app: Litestar) -> None:
 # Configuration
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
 MONGODB_DB = os.getenv("MONGODB_DB", "github_webhooks")
+MONGODB_USER = os.getenv("MONGODB_USER", "")
+MONGODB_PASS = os.getenv("MONGODB_PASS", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 TOKEN_URL = os.environ.get("TOKEN_URL", "https://oidc.nersc.gov/c2id/token")
 ADMISSION_CONF_FILE = os.environ.get("ADMISSION_CONF_FILE", "configs/admission.yaml")
 ADMISSION_CONF = read_admission_conf(ADMISSION_CONF_FILE)
 JINJA_ENV = Environment(loader=PackageLoader("app"), enable_async=False)
+LITESTAR_LOG_CONF = LoggingConfig(
+    root = {"level" : "INFO", "handlers": ["queue_listener"]},
+    formatters = {
+        "standard" : { "format" : "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s" }
+    },
+    log_exceptions="always",
+)
 
 app = Litestar(
     route_handlers=[receive_webhook, list_webhooks, index, webhook_detail],
@@ -366,6 +377,7 @@ app = Litestar(
     template_config=TemplateConfig(
         engine=JinjaTemplateEngine.from_environment(JINJA_ENV),
     ),
+    logging_config=LITESTAR_LOG_CONF,
 )
 
 if __name__ == "__main__":
