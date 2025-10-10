@@ -197,7 +197,7 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> Final[int]:
         logging.info("Job submitted.")
         return status_code.HTTP_201_CREATED
     except Exception as e:
-        print(f"An error occurred accessing SF API: {e}")
+        logging.error(f"An error occurred accessing SF API: {e}")
         return e.response.status_code
 
 
@@ -284,21 +284,42 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
     """
     Homepage showing webhook dashboard
     """
-    mongo_service: MongoDBService = state.mongo_service
+    if not hasattr(state, 'mongo_service') or state.mongo_service is None:
+        return Template(
+            template_name="error.html",
+            context={
+                "error_type": "MongoDB Connection Failed",
+                "mongodb_url": MONGODB_URL,
+                "mongodb_db": MONGODB_DB,
+                "error_message": str(state.mongo_error)
+            }
+        )
 
-    webhooks = await mongo_service.get_webhooks(limit=100, event_type=event_type)
-    event_types = await mongo_service.get_event_types()
-    stats = await mongo_service.get_stats()
+    try:
+        mongo_service: MongoDBService = state.mongo_service
+        webhooks = await mongo_service.get_webhooks(limit=100, event_type=event_type)
+        event_types = await mongo_service.get_event_types()
+        stats = await mongo_service.get_stats()
 
-    return Template(
-        template_name="index.html",
-        context={
-            "webhooks": webhooks,
-            "event_types": event_types,
-            "stats": stats,
-            "selected_event_type": event_type,
-        },
-    )
+        return Template(
+            template_name="index.html",
+            context={
+                "webhooks": webhooks,
+                "event_types": event_types,
+                "stats": stats,
+                "selected_event_type": event_type,
+            },
+        )
+    except Exception as e:
+        return Template(
+            template_name="error.html",
+            context={
+                "error_type": "MongoDB Error",
+                "mongodb_url": MONGODB_URL,
+                "mongodb_db": MONGODB_DB,
+                "error_message": str(e)
+            }
+        )
 
 
 @get("/webhooks/{webhook_id:str}")
@@ -320,29 +341,31 @@ async def webhook_detail(state: State, webhook_id: str) -> Template:
 
 async def on_startup(app: Litestar) -> None:
     """Initialize MongoDB connection on startup"""
-    print("Starting GitHub Webhook Receiver...")
-    print(f"MongoDB: {MONGODB_URL}/{MONGODB_DB}")
-    print(f"Mongo user: {MONGODB_USER}")
-    print(
+    logging.info("Starting GitHub Webhook Receiver...")
+    logging.info(f"MongoDB: {MONGODB_URL}/{MONGODB_DB}")
+    logging.info(f"Mongo user: {MONGODB_USER}")
+    logging.info(
         f"Webhook Secret: {'Configured' if WEBHOOK_SECRET else 'Not configured (signatures will not be verified)'}"
     )
-    print(f"{WEBHOOK_SECRET}")
-
     client = AsyncMongoClient(MONGODB_URL,
                               username=MONGODB_USER,
-                              password=MONGODB_PASS)
+                              password=MONGODB_PASS,
+                              serverSelectionTimeoutMS=15000)
     try:
         await client.admin.command('ping')
         db = client[MONGODB_DB]
         app.state.mongo_service = MongoDBService(db)
-        print(f"Connected to MongoDB: {MONGODB_URL}/{MONGODB_DB}")
+        logging.info(f"Connected to MongoDB: {MONGODB_URL}/{MONGODB_DB}")
     except Exception as e:
-        print(f"Error pinging MongoDB server: {e}")
+        app.state.mongo_service = None
+        app.state.mongo_error = e
+        logging.error(f"Error pinging MongoDB server: {e}")
+
 
 
 async def on_shutdown(app: Litestar) -> None:
     """Close MongoDB connection on shutdown"""
-    print("Application shutting down")
+    logging.info("Application shutting down")
 
 
 # Configuration

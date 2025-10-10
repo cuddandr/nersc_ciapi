@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Database Connection Error{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 60px 20px;">
+    <div style="font-size: 64px; margin-bottom: 20px;">⚠️</div>
+    <h2 style="color: #f85149; font-size: 32px; margin-bottom: 20px;">{{ error_type }}</h2>
+    
+    <div class="stat-card" style="max-width: 600px; margin: 0 auto; text-align: left;">
+        <h3>Connection Details</h3>
+        <div style="margin-top: 15px;">
+            <p style="color: #8b949e; margin-bottom: 5px;">Database URL:</p>
+            <p style="font-family: monospace; color: #58a6ff; word-break: break-all;">{{ mongodb_url }}</p>
+        </div>
+        <div style="margin-top: 15px;">
+            <p style="color: #8b949e; margin-bottom: 5px;">Database Name:</p>
+            <p style="font-family: monospace; color: #58a6ff;">{{ mongodb_db }}</p>
+        </div>
+        {% if error_message %}
+        <div style="margin-top: 15px;">
+            <p style="color: #8b949e; margin-bottom: 5px;">Error Message:</p>
+            <p style="font-family: monospace; color: #f85149; font-size: 13px;">{{ error_message }}</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
