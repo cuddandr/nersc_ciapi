@@ -22,6 +22,7 @@ from litestar.openapi.plugins import SwaggerRenderPlugin
 from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.template.config import TemplateConfig
 from litestar.response import Template
+from litestar.static_files import create_static_files_router
 import litestar.status_codes as status_code
 
 from jinja2 import Environment, PackageLoader
@@ -391,7 +392,8 @@ LITESTAR_LOG_CONF = LoggingConfig(
 )
 
 app = Litestar(
-    route_handlers=[receive_webhook, list_webhooks, index, webhook_detail],
+    route_handlers=[receive_webhook, list_webhooks, index, webhook_detail,
+                    create_static_files_router(path="/static", directories=["static"])],
     on_startup=[on_startup],
     on_shutdown=[on_shutdown],
     openapi_config=OpenAPIConfig(
