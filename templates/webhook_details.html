@@ -11,7 +11,7 @@
     <h3>Event Type</h3>
     <div style="margin-top: 10px;"><span class="badge">{{ webhook.event_type }}</span></div>
     <h3 style="margin-top: 15px;">Received At</h3>
-    <div class="timestamp">{{ webhook.received_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</div>
+    <div class="timestamp">{{ webhook.received_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</div>
     <h3 style="margin-top: 15px;">Webhook ID</h3>
     <div style="color: #8b949e; font-family: monospace;">{{ webhook._id }}</div>
 </div>

@@ -61,7 +61,7 @@
                 -
                 {% endif %}
             </td>
-            <td class="timestamp">{{ webhook.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td class="timestamp">{{ webhook.received_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td>
             <td><a href="/webhooks/{{ webhook._id }}">View →</a></td>
         </tr>
         {% endfor %}

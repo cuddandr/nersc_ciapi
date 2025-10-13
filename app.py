@@ -5,7 +5,11 @@ import hashlib, hmac
 import json, yaml
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, Final
+
+from bson import ObjectId
+from bson.codec_options import CodecOptions
 
 from authlib.integrations.requests_client import OAuth2Session
 from authlib.oauth2.rfc7523 import PrivateKeyJWT
@@ -30,8 +34,9 @@ class MongoDBService:
     """MongoDB service for webhook storage"""
 
     def __init__(self, db: AsyncDatabase):
+        options = CodecOptions(tz_aware = True, tzinfo = ZoneInfo(TZINFO))
         self.db = db
-        self.collection = db.webhooks
+        self.collection = db.get_collection("webhooks", options)
 
     async def store_webhook(
         self, event_type: str, payload: Dict[str, Any], headers: dict[str, str]
@@ -41,7 +46,7 @@ class MongoDBService:
             "event_type": event_type,
             "payload": payload,
             "headers": headers,
-            "received_at": datetime.utcnow(),
+            "received_at": datetime.now(ZoneInfo(TZINFO)),
         }
         result = await self.collection.insert_one(document)
         return str(result.inserted_id)
@@ -61,8 +66,6 @@ class MongoDBService:
 
     async def get_webhook_by_id(self, webhook_id: str) -> Optional[dict]:
         """Retrieve a single webhook by ID"""
-        from bson import ObjectId
-
         try:
             doc = await self.collection.find_one({"_id": ObjectId(webhook_id)})
             if doc:
@@ -374,6 +377,7 @@ MONGODB_DB = os.getenv("MONGODB_DB", "github_webhooks")
 MONGODB_USER = os.getenv("MONGODB_USER", "")
 MONGODB_PASS = os.getenv("MONGODB_PASS", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+TZINFO = os.getenv("TZINFO", "US/Pacific")
 TOKEN_URL = os.environ.get("TOKEN_URL", "https://oidc.nersc.gov/c2id/token")
 ADMISSION_CONF_FILE = os.environ.get("ADMISSION_CONF_FILE", "configs/admission.yaml")
 ADMISSION_CONF = read_admission_conf(ADMISSION_CONF_FILE)
