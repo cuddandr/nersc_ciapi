@@ -28,3 +28,4 @@
           protocol: sfapi
           client_id: /secrets/dune/sfapi.client_id.txt
           private_key: /secrets/dune/sfapi.priv_key.pem
+          target_dir: ${SCRATCH}/nersc_ciapi

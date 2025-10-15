@@ -164,7 +164,6 @@ def check_admission(data: dict, admission_conf: dict) -> tuple[bool, dict]:
 
 def submit_job(data_dict: dict, nersc_dict: dict) -> Final[int]:
     """Run the job."""
-    # Implement the job logic here
     logging.info(f"Repository: {data_dict['repository']['full_name']}")
     logging.info(f"Branch: {data_dict['workflow_job']['head_branch']}")
     logging.info(f"Sender: {data_dict['sender']['login']}")
@@ -173,6 +172,7 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> Final[int]:
     client_id = read_file_content(nersc_dict['cluster']['perlmutter']['client_id']).strip()
     private_key = read_file_content(nersc_dict['cluster']['perlmutter']['private_key'])
 
+    # Authenticate session for SF-API
     logging.info("Running on Perlmutter")
     logging.info(f"CLIENT_ID = {client_id}")
     logging.info(f"TOKEN_URL = {TOKEN_URL}")
@@ -184,8 +184,9 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> Final[int]:
         token_endpoint=TOKEN_URL,
     )
     session.fetch_token()
-    # cmd = f"${{HOME}}/start_runner.sh {data_dict['repository']['full_name']}"
-    cmd = f"${{HOME}}/start_runner.sh {nersc_dict['_id']}"
+    # Build command to start runner
+    dir = nersc_dict['cluster']['perlmutter']['target_dir']
+    cmd = f"{dir}/scripts/start_runner.sh {nersc_dict['_id']}"
     try:
         # Validate NERSC username
         logging.info(f"Checking NERSC username: {nersc_dict['user']}.")
@@ -238,12 +239,9 @@ async def receive_webhook(
             )
         else:
             logging.info("Verification succeeded.")
-
-    # Parse JSON payload
     payload = await request.json()
 
     logging.info("Storing in MongoDB.")
-    # Store in MongoDB
     mongo_service: MongoDBService = state.mongo_service
     webhook_id = await mongo_service.store_webhook(
         event_type=event_type, payload=payload, headers=dict(request.headers)
@@ -268,13 +266,13 @@ async def receive_webhook(
 
 @get("/webhooks")
 async def list_webhooks(
-    state: State, limit: int = 50, event_type: Optional[str] = None
+    state: State, limit: int = 10, event_type: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Endpoint to retrieve stored webhooks
 
     Query parameters:
-    - limit: Number of webhooks to return (default: 50)
+    - limit: Number of webhooks to return (default: 10)
     - event_type: Filter by GitHub event type (optional)
     """
     mongo_service: MongoDBService = state.mongo_service
@@ -288,6 +286,7 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
     """
     Homepage showing webhook dashboard
     """
+    # Check if connection established to MongoDB and show error page if not
     if not hasattr(state, 'mongo_service') or state.mongo_service is None:
         return Template(
             template_name="error.html",
@@ -299,6 +298,7 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
             }
         )
 
+    # Display the webhook dashboard
     try:
         mongo_service: MongoDBService = state.mongo_service
         webhooks = await mongo_service.get_webhooks(limit=100, event_type=event_type)
@@ -364,7 +364,6 @@ async def on_startup(app: Litestar) -> None:
         app.state.mongo_service = None
         app.state.mongo_error = e
         logging.error(f"Error pinging MongoDB server: {e}")
-
 
 
 async def on_shutdown(app: Litestar) -> None:
