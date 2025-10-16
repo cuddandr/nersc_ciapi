@@ -2,9 +2,9 @@ import logging
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(funcName)s - %(message)s", level=logging.INFO)
 
 import hashlib, hmac
-import json, yaml
-import os
-from datetime import datetime
+import json, jq, yaml
+import os, time
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, Final
 
@@ -206,6 +206,53 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> Final[int]:
         return e.response.status_code
 
 
+async def get_queue_info(days: int = 1) -> dict:
+    client_id = read_file_content(ADMISSION_CONF['sfapi_client_id']).strip()
+    private_key = read_file_content(ADMISSION_CONF['sfapi_private_key'])
+
+    # Authenticate session for SF-API
+    logging.info("Running on Perlmutter")
+    logging.info(f"CLIENT_ID = {client_id}")
+    logging.info(f"TOKEN_URL = {TOKEN_URL}")
+    session = OAuth2Session(
+        client_id,
+        private_key,
+        PrivateKeyJWT(TOKEN_URL),
+        grant_type="client_credentials",
+        token_endpoint=TOKEN_URL,
+    )
+    session.fetch_token()
+    # Build command to get SLURM queue via sacct
+    start_date = date.today() - timedelta(days=days)
+    cmd = f'bash -c "sacct -a -X -A dune --json -S {start_date}"'
+    try:
+        # Run sacct on Perlmutter
+        logging.info("Running sacct on Perlmutter")
+        r = session.post("https://api.nersc.gov/api/v1.2/utilities/command/perlmutter", data = {"executable": cmd})
+        r.raise_for_status()
+        logging.info(f"Superfacility API status: {r.json()}")
+        post_output = r.json()
+
+        # It takes some time to actually run the command on Perlmutter and have the output available
+        # Right now just sleep and hope that it is ready to retrieve
+        time.sleep(60)
+
+        logging.info("Getting task output.")
+        r = session.get(f"https://api.nersc.gov/api/v1.2/tasks/{post_output['task_id']}")
+        r.raise_for_status()
+        get_output = r.json()
+        if get_output['result']:
+            task_output = json.loads(get_output['result'])
+            task_output = json.loads(task_output['output'])
+            return task_output
+        else:
+            return {"jobs": []}
+
+    except Exception as e:
+        logging.error(f"An error occurred accessing SF API: {e}")
+        return {"error": e}
+
+
 @post("/webhooks")
 async def receive_webhook(
     request: Request,
@@ -342,6 +389,64 @@ async def webhook_detail(state: State, webhook_id: str) -> Template:
         },
     )
 
+@get("/queue")
+async def display_queue(state: State, days: int = 1) -> Template:
+    # data = json.load(open("./example.json"))
+
+    data = await get_queue_info(days=days)
+
+    if data.get('error', None):
+        return Template(
+            template_name="slurm_queue.html",
+            context={
+                "jobs": {},
+                "total_jobs": 0,
+                "running_jobs": 0,
+                "completed_jobs": 0,
+                "failed_jobs": 0,
+                "pending_jobs": 0,
+                "error": str(data['error'])
+            },
+        )
+
+    # Apply jq filter
+    jq_filter = '''
+    .jobs[] | {
+      jobid: .job_id,
+      jobname: .name,
+      account: .account,
+      user: .user,
+      state: .state.current[0],
+      start: .time.start,
+      elapsed: .time.elapsed,
+      timelimit: (.time.limit.number * 60)
+    }
+    '''
+
+    jobs = jq.all(jq_filter, data)
+
+    for job in jobs:
+        job['start'] = datetime.fromtimestamp(job['start']).strftime('%Y-%m-%d %H:%M:%S %Z')
+        job['elapsed'] = str(timedelta(seconds=job['elapsed']))
+        job['timelimit'] = str(timedelta(seconds=job['timelimit']))
+
+    total_jobs = len(jobs)
+    running_jobs = sum(1 for job in jobs if job['state'] == 'RUNNING')
+    completed_jobs = sum(1 for job in jobs if job['state'] == 'COMPLETED')
+    failed_jobs = sum(1 for job in jobs if job['state'] == 'FAILED')
+    pending_jobs = sum(1 for job in jobs if job['state'] == 'PENDING')
+
+    return Template(
+        template_name="slurm_queue.html",
+        context={
+            "jobs": jobs,
+            "total_jobs": total_jobs,
+            "running_jobs": running_jobs,
+            "completed_jobs": completed_jobs,
+            "failed_jobs": failed_jobs,
+            "pending_jobs": pending_jobs,
+        },
+    )
 
 async def on_startup(app: Litestar) -> None:
     """Initialize MongoDB connection on startup"""
@@ -391,7 +496,7 @@ LITESTAR_LOG_CONF = LoggingConfig(
 )
 
 app = Litestar(
-    route_handlers=[receive_webhook, list_webhooks, index, webhook_detail,
+    route_handlers=[receive_webhook, list_webhooks, index, webhook_detail, display_queue,
                     create_static_files_router(path="/static", directories=["static"])],
     on_startup=[on_startup],
     on_shutdown=[on_shutdown],

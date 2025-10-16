@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .status-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+
+    .status-completed {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .status-running {
+        background: #cce5ff;
+        color: #004085;
+    }
+
+    .status-failed {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    .status-pending {
+        background: #fff3cd;
+        color: #856404;
+    }
+
+    .status-cancelled {
+        background: #e2e3e5;
+        color: #383d41;
+    }
+</style>
+<div class="stats">
+    <div class="stat-card">
+        <h3>Total Jobs</h3>
+        <div class="number">{{ total_jobs }}</div>
+    </div>
+    <div class="stat-card">
+        <h3>Running</h3>
+        <div class="number" style="color: #0066cc;">{{ running_jobs }}</div>
+    </div>
+    <div class="stat-card">
+        <h3>Completed</h3>
+        <div class="number" style="color: #28a745;">{{ completed_jobs }}</div>
+    </div>
+    <div class="stat-card">
+        <h3>Failed</h3>
+        <div class="number" style="color: #dc3545;">{{ failed_jobs }}</div>
+    </div>
+    <div class="stat-card">
+        <h3>Pending</h3>
+        <div class="number" style="color: #ffc107;">{{ pending_jobs }}</div>
+    </div>
+</div>
+
+{% if jobs %}
+<div class="jobs-table">
+    <table>
+        <thead>
+            <tr>
+                <th>Job ID</th>
+                <th>Job Name</th>
+                <th>Account</th>
+                <th>User</th>
+                <th>State</th>
+                <th>Start Time</th>
+                <th>Elapsed</th>
+                <th>Time Limit</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td><strong>{{ job.jobid }}</strong></td>
+                <td>{{ job.jobname }}</td>
+                <td>{{ job.account }}</td>
+                <td>{{ job.user }}</td>
+                <td>
+                    <span class="status-badge status-{{ job.state.lower() }}">
+                        {{ job.state }}
+                    </span>
+                </td>
+                <td>{{ job.start }}</td>
+                <td>{{ job.elapsed }}</td>
+                <td>{{ job.timelimit }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p style="text-align: center; padding: 40px; color: #8b949e;">
+    No job queue information available. Queue is empty.
+</p>
+{% endif %}
+{% endblock %}

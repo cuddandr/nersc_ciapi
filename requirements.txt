@@ -2,3 +2,4 @@ Authlib
 litestar[standard]
 pymongo
 requests
+jq
