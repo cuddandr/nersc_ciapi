@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}{{ error_title }}{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 60px 20px;">
+    {% if status_code == 404 %}
+    <div style="font-size: 64px; margin-bottom: 20px;">🔍</div>
+    {% else %}
+    <div style="font-size: 64px; margin-bottom: 20px;">⚠️</div>
+    {% endif %}
+
+    <h2 style="color: #f85149; font-size: 48px; margin-bottom: 10px;">{{ status_code }}</h2>
+    <h3 style="color: #8b949e; font-size: 24px; margin-bottom: 20px;">{{ error_title }}</h3>
+
+    <div class="stat-card" style="max-width: 600px; margin: 30px auto; text-align: left;">
+        <p style="color: #c9d1d9; margin-bottom: 15px;">{{ error_message }}</p>
+        <div style="margin-top: 15px;">
+            <p style="color: #8b949e; margin-bottom: 5px;">Requested Path:</p>
+            <p style="font-family: monospace; color: #58a6ff; word-break: break-all;">{{ request_path }}</p>
+        </div>
+    </div>
+
+    {% if status_code == 404 %}
+    <div style="margin-top: 40px; padding: 20px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; max-width: 600px; margin-left: auto; margin-right: auto; text-align: left;">
+        <h3 style="color: #58a6ff; margin-bottom: 15px;">Available Routes:</h3>
+        <ul style="color: #8b949e; line-height: 2; list-style: none; padding: 0;">
+            <li>🏠 <a href="/">Dashboard</a> - View all webhooks</li>
+            <li>📊 <a href="/webhooks">API: List Webhooks</a> - JSON endpoint</li>
+            <li>🪝 <code style="background: #0d1117; padding: 2px 6px; border-radius: 3px; color: #c9d1d9;">/webhooks</code> - POST endpoint for GitHub webhooks</li>
+        </ul>
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 30px;">
+        <a href="/">
+            <button style="padding: 10px 20px; font-size: 16px;">
+                🏠 Go to Dashboard
+            </button>
+        </a>
+    </div>
+</div>
+{% endblock %}

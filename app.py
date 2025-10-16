@@ -14,7 +14,7 @@ from bson.codec_options import CodecOptions
 from authlib.integrations.requests_client import OAuth2Session
 from authlib.oauth2.rfc7523 import PrivateKeyJWT
 
-from litestar import Litestar, post, get, Request, Response
+from litestar import Litestar, post, get, Request, Response, MediaType
 from litestar.datastructures import State
 from litestar.logging import LoggingConfig
 from litestar.openapi.config import OpenAPIConfig
@@ -23,6 +23,7 @@ from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.template.config import TemplateConfig
 from litestar.response import Template
 from litestar.static_files import create_static_files_router
+from litestar.exceptions import NotFoundException, HTTPException
 import litestar.status_codes as status_code
 
 from jinja2 import Environment, PackageLoader
@@ -363,7 +364,7 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
         )
     except Exception as e:
         return Template(
-            template_name="error.html",
+            template_name="mongo_error.html",
             context={
                 "error_type": "MongoDB Error",
                 "mongodb_url": MONGODB_URL,
@@ -475,6 +476,48 @@ async def on_shutdown(app: Litestar) -> None:
     """Close MongoDB connection on shutdown"""
     logging.info("Application shutting down")
 
+def http_exception_handler(request: Request, exc: Exception) -> Response:
+    """
+    Custom exception handler for HTTP errors
+    """
+    provided_types = [MediaType.HTML, MediaType.JSON]
+    preferred_type = request.accept.best_match(provided_types, default=MediaType.JSON)
+
+    status_code = 500
+    error_title = "Internal Server Error"
+    error_message = "An unexpected error occurred."
+
+    if isinstance(exc, NotFoundException):
+        status_code = 404
+        error_title = "Page Not Found"
+        error_message = "The page you're looking for doesn't exist."
+    elif isinstance(exc, HTTPException):
+        status_code = exc.status_code
+        error_title = f"Error {status_code}"
+        error_message = exc.detail or "An error occurred."
+
+    # Return HTML or JSON based on request header
+    if preferred_type == MediaType.HTML:
+        return Template(
+            template_name="http_error.html",
+            context={
+                "status_code": status_code,
+                "error_title": error_title,
+                "error_message": error_message,
+                "request_path": request.url.path
+            },
+            status_code=status_code
+        )
+    else:
+        return Response(
+            content={
+                "error": error_title,
+                "message": error_message,
+                "status_code": status_code
+            },
+            status_code=status_code
+        )
+
 
 # Configuration
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -511,6 +554,10 @@ app = Litestar(
         engine=JinjaTemplateEngine.from_environment(JINJA_ENV),
     ),
     logging_config=LITESTAR_LOG_CONF,
+    exception_handlers={
+        HTTPException: http_exception_handler,
+        NotFoundException: http_exception_handler,
+    },
 )
 
 if __name__ == "__main__":
