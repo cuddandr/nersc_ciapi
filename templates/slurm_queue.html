@@ -1,5 +1,4 @@
-{% extends "base.html" %}
-{% block content %}
+{% extends "base.html" %} {% block content %}
 <style>
     .status-badge {
         display: inline-block;
@@ -21,8 +20,13 @@
     }
 
     .status-failed {
-        background: #f8d7da;
+        background: #fccfd3;
         color: #721c24;
+    }
+
+    .status-timeout {
+        background: #ebc5f0;
+        color: #741f80;
     }
 
     .status-pending {
@@ -34,68 +38,165 @@
         background: #e2e3e5;
         color: #383d41;
     }
+
+    .spinner-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 200px; /* Adjust as needed */
+        flex-direction: column;
+    }
+
+    .loader {
+        border: 8px solid #f3f3f3; /* Light grey */
+        border-top: 8px solid #3498db; /* Blue */
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        animation: spin 2s linear infinite;
+        margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    .loading-message {
+        font-size: 1.2em;
+        color: #666;
+    }
 </style>
-<div class="stats">
-    <div class="stat-card">
-        <h3>Total Jobs</h3>
-        <div class="number">{{ total_jobs }}</div>
-    </div>
-    <div class="stat-card">
-        <h3>Running</h3>
-        <div class="number" style="color: #0066cc;">{{ running_jobs }}</div>
-    </div>
-    <div class="stat-card">
-        <h3>Completed</h3>
-        <div class="number" style="color: #28a745;">{{ completed_jobs }}</div>
-    </div>
-    <div class="stat-card">
-        <h3>Failed</h3>
-        <div class="number" style="color: #dc3545;">{{ failed_jobs }}</div>
-    </div>
-    <div class="stat-card">
-        <h3>Pending</h3>
-        <div class="number" style="color: #ffc107;">{{ pending_jobs }}</div>
-    </div>
+
+<div id="loading-spinner" class="spinner-container">
+    <div class="loader"></div>
+    <div class="loading-message">Loading SLURM queue data...</div>
 </div>
 
-{% if jobs %}
-<div class="jobs-table">
-    <table>
-        <thead>
-            <tr>
-                <th>Job ID</th>
-                <th>Job Name</th>
-                <th>Account</th>
-                <th>User</th>
-                <th>State</th>
-                <th>Start Time</th>
-                <th>Elapsed</th>
-                <th>Time Limit</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for job in jobs %}
-            <tr>
-                <td><strong>{{ job.jobid }}</strong></td>
-                <td>{{ job.jobname }}</td>
-                <td>{{ job.account }}</td>
-                <td>{{ job.user }}</td>
-                <td>
-                    <span class="status-badge status-{{ job.state.lower() }}">
-                        {{ job.state }}
-                    </span>
-                </td>
-                <td>{{ job.start }}</td>
-                <td>{{ job.elapsed }}</td>
-                <td>{{ job.timelimit }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div id="queue-content" style="display: none">
+    <!-- The dynamically loaded content will go here -->
 </div>
-{% else %}
-<p style="text-align: center; padding: 40px; color: #8b949e;">
-    No job queue information available. Queue is empty.
-</p>
-{% endif %}
+
+<script>
+    document.addEventListener("DOMContentLoaded", async () => {
+        const loadingSpinner = document.getElementById("loading-spinner");
+        const queueContent = document.getElementById("queue-content");
+
+        try {
+            // Fetch queue data from API endpoint as JSON
+            // The `days` parameter can be passed if needed, e.g., `/queue-data?days=1`.
+            const response = await fetch("/queue-data");
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+
+            if (data.error) {
+                queueContent.innerHTML = `
+                    <p style="text-align: center; padding: 40px; color: #dc3545;">
+                        Error fetching queue data: ${data.error}
+                    </p>
+                `;
+            } else {
+                // Render stats
+                let statsHtml = `
+                    <div class="stats">
+                        <div class="stat-card">
+                            <h3>Total Jobs</h3>
+                            <div class="number">${data.total_jobs}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Running</h3>
+                            <div class="number" style="color: #0066cc;">${data.running_jobs}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Completed</h3>
+                            <div class="number" style="color: #28a745;">${data.completed_jobs}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Failed</h3>
+                            <div class="number" style="color: #dc3545;">${data.failed_jobs}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Timeout</h3>
+                            <div class="number" style="color: #c433d4;">${data.timeout_jobs}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Pending</h3>
+                            <div class="number" style="color: #ffc107;">${data.pending_jobs}</div>
+                        </div>
+                    </div>
+                `;
+
+                // Render jobs table
+                let jobsTableHtml = "";
+                if (data.jobs && data.jobs.length > 0) {
+                    jobsTableHtml = `
+                        <div class="jobs-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Job ID</th>
+                                        <th>Job Name</th>
+                                        <th>Account</th>
+                                        <th>User</th>
+                                        <th>State</th>
+                                        <th>Start Time</th>
+                                        <th>Elapsed</th>
+                                        <th>Time Limit</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+                    data.jobs.forEach((job) => {
+                        const statusClass = `status-${job.state.toString().toLowerCase()}`;
+                        jobsTableHtml += `
+                            <tr>
+                                <td><strong>${job.jobid}</strong></td>
+                                <td>${job.jobname}</td>
+                                <td>${job.account}</td>
+                                <td>${job.user}</td>
+                                <td>
+                                    <span class="status-badge ${statusClass}">
+                                        ${job.state}
+                                    </span>
+                                </td>
+                                <td>${job.start}</td>
+                                <td>${job.elapsed}</td>
+                                <td>${job.timelimit}</td>
+                            </tr>
+                        `;
+                    });
+                    jobsTableHtml += `
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                } else {
+                    jobsTableHtml = `
+                        <p style="text-align: center; padding: 40px; color: #8b949e;">
+                            No job queue information available. Queue is empty.
+                        </p>
+                    `;
+                }
+
+                queueContent.innerHTML = statsHtml + jobsTableHtml;
+            }
+        } catch (error) {
+            console.error("Failed to fetch queue data:", error);
+            queueContent.innerHTML = `
+                <p style="text-align: center; padding: 40px; color: #dc3545;">
+                    Failed to load queue data. Please try again later. (${error.message})
+                </p>
+            `;
+        } finally {
+            loadingSpinner.style.display = "none";
+            queueContent.style.display = "block";
+        }
+    });
+</script>
 {% endblock %}

@@ -1,12 +1,15 @@
 import logging
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(funcName)s - %(message)s", level=logging.INFO)
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(funcName)s - %(message)s", level=logging.INFO
+)
 
 import hashlib, hmac
 import json, jq, yaml
 import os, time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Dict, Any, Optional, Final
+from typing import Any, Optional
 
 from bson import ObjectId
 from bson.codec_options import CodecOptions
@@ -36,12 +39,12 @@ class MongoDBService:
     """MongoDB service for webhook storage"""
 
     def __init__(self, db: AsyncDatabase):
-        options = CodecOptions(tz_aware = True, tzinfo = ZoneInfo(TZINFO))
+        options = CodecOptions(tz_aware=True, tzinfo=ZoneInfo(TZINFO))
         self.db = db
         self.collection = db.get_collection("webhooks", options)
 
     async def store_webhook(
-        self, event_type: str, payload: Dict[str, Any], headers: dict[str, str]
+        self, event_type: str, payload: dict[str, Any], headers: dict[str, str]
     ) -> str:
         """Store a webhook event in MongoDB"""
         document = {
@@ -154,7 +157,7 @@ def check_admission(data: dict, admission_conf: dict) -> tuple[bool, Optional[di
             continue
         elif data["workflow_job"]["head_branch"] not in i["branch"]:
             continue
-        elif data["sender"]["login"] not in i["user"].keys():
+        elif data["sender"]["login"] not in i["user"]:
             continue
         else:
             nersc_user = i["user"][data["sender"]["login"]]
@@ -168,10 +171,10 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
     logging.info(f"Repository: {data_dict['repository']['full_name']}")
     logging.info(f"Branch: {data_dict['workflow_job']['head_branch']}")
     logging.info(f"Sender: {data_dict['sender']['login']}")
-    print(nersc_dict['cluster'])
+    print(nersc_dict["cluster"])
 
-    client_id = read_file_content(nersc_dict['cluster']['perlmutter']['client_id']).strip()
-    private_key = read_file_content(nersc_dict['cluster']['perlmutter']['private_key'])
+    client_id = read_file_content(nersc_dict["cluster"]["perlmutter"]["client_id"]).strip()
+    private_key = read_file_content(nersc_dict["cluster"]["perlmutter"]["private_key"])
 
     # Authenticate session for SF-API
     logging.info("Running on Perlmutter")
@@ -186,7 +189,7 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
     )
     session.fetch_token()
     # Build command to start runner
-    dir = nersc_dict['cluster']['perlmutter']['target_dir']
+    dir = nersc_dict["cluster"]["perlmutter"]["target_dir"]
     cmd = f"{dir}/scripts/start_runner.sh {nersc_dict['_id']}"
     try:
         # Validate NERSC username
@@ -197,7 +200,9 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
         logging.info(f"{nersc_dict['user']} valid NERSC user.")
 
         # Run script on Perlmutter
-        r = session.post("https://api.nersc.gov/api/v1.2/utilities/command/perlmutter", data = {"executable": cmd})
+        r = session.post(
+            "https://api.nersc.gov/api/v1.2/utilities/command/perlmutter", data={"executable": cmd}
+        )
         r.raise_for_status()
         logging.info(f"Superfacility API status: {r.json()}")
         logging.info("Job submitted.")
@@ -207,9 +212,50 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
         return e.response.status_code
 
 
-async def get_queue_info(days: int = 1) -> dict:
-    client_id = read_file_content(ADMISSION_CONF['sfapi_client_id']).strip()
-    private_key = read_file_content(ADMISSION_CONF['sfapi_private_key'])
+def filter_sacct(data: dict) -> dict:
+    jq_filter = """
+    .jobs[] | {
+    jobid: .job_id,
+    jobname: .name,
+    account: .account,
+    user: .user,
+    state: .state.current[0],
+    start: .time.start,
+    elapsed: .time.elapsed,
+    timelimit: (.time.limit.number * 60)
+    }
+    """
+
+    jobs = jq.all(jq_filter, data)
+    for job in jobs:
+        job["start"] = datetime.fromtimestamp(job["start"], tz=ZoneInfo(TZINFO)).strftime(
+            "%Y-%m-%d %H:%M:%S %Z"
+        )
+        job["elapsed"] = str(timedelta(seconds=job["elapsed"]))
+        job["timelimit"] = str(timedelta(seconds=job["timelimit"]))
+
+    total_jobs = len(jobs)
+    running_jobs = sum(1 for job in jobs if job["state"] == "RUNNING")
+    completed_jobs = sum(1 for job in jobs if job["state"] == "COMPLETED")
+    failed_jobs = sum(1 for job in jobs if job["state"] == "FAILED")
+    pending_jobs = sum(1 for job in jobs if job["state"] == "PENDING")
+    timeout_jobs = sum(1 for job in jobs if job["state"] == "TIMEOUT")
+
+    return {
+        "jobs": jobs,
+        "total_jobs": total_jobs,
+        "running_jobs": running_jobs,
+        "completed_jobs": completed_jobs,
+        "failed_jobs": failed_jobs,
+        "pending_jobs": pending_jobs,
+        "timeout_jobs": timeout_jobs,
+    }
+
+
+@get("/queue-data")
+async def get_queue_info(days: int = 1) -> Response:
+    client_id = read_file_content(ADMISSION_CONF["sfapi_client_id"]).strip()
+    private_key = read_file_content(ADMISSION_CONF["sfapi_private_key"])
 
     # Authenticate session for SF-API
     logging.info("Running on Perlmutter")
@@ -229,29 +275,40 @@ async def get_queue_info(days: int = 1) -> dict:
     try:
         # Run sacct on Perlmutter
         logging.info("Running sacct on Perlmutter")
-        r = session.post("https://api.nersc.gov/api/v1.2/utilities/command/perlmutter", data = {"executable": cmd})
+        r = session.post(
+            "https://api.nersc.gov/api/v1.2/utilities/command/perlmutter", data={"executable": cmd}
+        )
         r.raise_for_status()
         logging.info(f"Superfacility API status: {r.json()}")
         post_output = r.json()
 
         # It takes some time to actually run the command on Perlmutter and have the output available
         # Right now just sleep and hope that it is ready to retrieve
-        time.sleep(60)
+        time.sleep(30)
 
         logging.info("Getting task output.")
         r = session.get(f"https://api.nersc.gov/api/v1.2/tasks/{post_output['task_id']}")
         r.raise_for_status()
         get_output = r.json()
-        if get_output['result']:
-            task_output = json.loads(get_output['result'])
-            task_output = json.loads(task_output['output'])
-            return task_output
+
+        # Extract `sacct` output from the SF API task payload
+        data = {}
+        if get_output["result"]:
+            task_output = json.loads(get_output["result"])
+            task_output = json.loads(task_output["output"])
+            data["jobs"] = task_output["jobs"]
         else:
-            return {"jobs": []}
+            data["jobs"] = []
+
+        filtered = filter_sacct(data)
+        return Response(
+            content=filtered,
+            status_code=status_code.HTTP_200_OK,
+        )
 
     except Exception as e:
         logging.error(f"An error occurred accessing SF API: {e}")
-        return {"error": e}
+        return Response(content={"error": str(e)}, status_code=status_code.HTTP_400_BAD_REQUEST)
 
 
 @post("/webhooks")
@@ -303,7 +360,7 @@ async def receive_webhook(
             content={"error": "Job not admitted."}, status_code=status_code.HTTP_401_UNAUTHORIZED
         )
     logging.info("Job admitted.")
-    nersc_config['_id'] = webhook_id
+    nersc_config["_id"] = webhook_id
     return_code = submit_job(payload, nersc_config)
 
     return Response(
@@ -315,7 +372,7 @@ async def receive_webhook(
 @get("/webhooks")
 async def list_webhooks(
     state: State, limit: int = 10, event_type: Optional[str] = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Endpoint to retrieve stored webhooks
 
@@ -335,15 +392,15 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
     Homepage showing webhook dashboard
     """
     # Check if connection established to MongoDB and show error page if not
-    if not hasattr(state, 'mongo_service') or state.mongo_service is None:
+    if not hasattr(state, "mongo_service") or state.mongo_service is None:
         return Template(
             template_name="error.html",
             context={
                 "error_type": "MongoDB Connection Failed",
                 "mongodb_url": MONGODB_URL,
                 "mongodb_db": MONGODB_DB,
-                "error_message": str(state.mongo_error)
-            }
+                "error_message": str(state.mongo_error),
+            },
         )
 
     # Display the webhook dashboard
@@ -369,8 +426,8 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
                 "error_type": "MongoDB Error",
                 "mongodb_url": MONGODB_URL,
                 "mongodb_db": MONGODB_DB,
-                "error_message": str(e)
-            }
+                "error_message": str(e),
+            },
         )
 
 
@@ -390,64 +447,19 @@ async def webhook_detail(state: State, webhook_id: str) -> Template:
         },
     )
 
+
 @get("/queue")
 async def display_queue(state: State, days: int = 1) -> Template:
-    # data = json.load(open("./example.json"))
-
-    data = await get_queue_info(days=days)
-
-    if data.get('error', None):
-        return Template(
-            template_name="slurm_queue.html",
-            context={
-                "jobs": {},
-                "total_jobs": 0,
-                "running_jobs": 0,
-                "completed_jobs": 0,
-                "failed_jobs": 0,
-                "pending_jobs": 0,
-                "error": str(data['error'])
-            },
-        )
-
-    # Apply jq filter
-    jq_filter = '''
-    .jobs[] | {
-      jobid: .job_id,
-      jobname: .name,
-      account: .account,
-      user: .user,
-      state: .state.current[0],
-      start: .time.start,
-      elapsed: .time.elapsed,
-      timelimit: (.time.limit.number * 60)
-    }
-    '''
-
-    jobs = jq.all(jq_filter, data)
-
-    for job in jobs:
-        job['start'] = datetime.fromtimestamp(job['start']).strftime('%Y-%m-%d %H:%M:%S %Z')
-        job['elapsed'] = str(timedelta(seconds=job['elapsed']))
-        job['timelimit'] = str(timedelta(seconds=job['timelimit']))
-
-    total_jobs = len(jobs)
-    running_jobs = sum(1 for job in jobs if job['state'] == 'RUNNING')
-    completed_jobs = sum(1 for job in jobs if job['state'] == 'COMPLETED')
-    failed_jobs = sum(1 for job in jobs if job['state'] == 'FAILED')
-    pending_jobs = sum(1 for job in jobs if job['state'] == 'PENDING')
-
+    """
+    Display Perlmutter job queue. Serves an initially empty webpage
+    with loading animation. A JS script inside the HTML performs an
+    API call to get the queue info and dynamically update the page.
+    """
     return Template(
         template_name="slurm_queue.html",
-        context={
-            "jobs": jobs,
-            "total_jobs": total_jobs,
-            "running_jobs": running_jobs,
-            "completed_jobs": completed_jobs,
-            "failed_jobs": failed_jobs,
-            "pending_jobs": pending_jobs,
-        },
+        context={},
     )
+
 
 async def on_startup(app: Litestar) -> None:
     """Initialize MongoDB connection on startup"""
@@ -457,12 +469,11 @@ async def on_startup(app: Litestar) -> None:
     logging.info(
         f"Webhook Secret: {'Configured' if WEBHOOK_SECRET else 'Not configured (signatures will not be verified)'}"
     )
-    client = AsyncMongoClient(MONGODB_URL,
-                              username=MONGODB_USER,
-                              password=MONGODB_PASS,
-                              serverSelectionTimeoutMS=15000)
+    client = AsyncMongoClient(
+        MONGODB_URL, username=MONGODB_USER, password=MONGODB_PASS, serverSelectionTimeoutMS=15000
+    )
     try:
-        await client.admin.command('ping')
+        await client.admin.command("ping")
         db = client[MONGODB_DB]
         app.state.mongo_service = MongoDBService(db)
         logging.info(f"Connected to MongoDB: {MONGODB_URL}/{MONGODB_DB}")
@@ -475,6 +486,7 @@ async def on_startup(app: Litestar) -> None:
 async def on_shutdown(app: Litestar) -> None:
     """Close MongoDB connection on shutdown"""
     logging.info("Application shutting down")
+
 
 def http_exception_handler(request: Request, exc: Exception) -> Response:
     """
@@ -504,18 +516,14 @@ def http_exception_handler(request: Request, exc: Exception) -> Response:
                 "status_code": status_code,
                 "error_title": error_title,
                 "error_message": error_message,
-                "request_path": request.url.path
+                "request_path": request.url.path,
             },
-            status_code=status_code
+            status_code=status_code,
         )
     else:
         return Response(
-            content={
-                "error": error_title,
-                "message": error_message,
-                "status_code": status_code
-            },
-            status_code=status_code
+            content={"error": error_title, "message": error_message, "status_code": status_code},
+            status_code=status_code,
         )
 
 
@@ -531,16 +539,21 @@ ADMISSION_CONF_FILE = os.environ.get("ADMISSION_CONF_FILE", "configs/admission.y
 ADMISSION_CONF = read_admission_conf(ADMISSION_CONF_FILE)
 JINJA_ENV = Environment(loader=PackageLoader("app"), enable_async=False)
 LITESTAR_LOG_CONF = LoggingConfig(
-    root = {"level" : "INFO", "handlers": ["queue_listener"]},
-    formatters = {
-        "standard" : { "format" : "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s" }
-    },
+    root={"level": "INFO", "handlers": ["queue_listener"]},
+    formatters={"standard": {"format": "%(asctime)s - %(levelname)s - %(funcName)s - %(message)s"}},
     log_exceptions="always",
 )
 
 app = Litestar(
-    route_handlers=[receive_webhook, list_webhooks, index, webhook_detail, display_queue,
-                    create_static_files_router(path="/static", directories=["static"])],
+    route_handlers=[
+        receive_webhook,
+        list_webhooks,
+        index,
+        webhook_detail,
+        display_queue,
+        get_queue_info,
+        create_static_files_router(path="/static", directories=["static"]),
+    ],
     on_startup=[on_startup],
     on_shutdown=[on_shutdown],
     openapi_config=OpenAPIConfig(
