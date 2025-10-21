@@ -119,7 +119,7 @@ def verify_github_signature(payload_body: bytes, signature_header: str, secret: 
     return hmac.compare_digest(expected_signature, signature_header)
 
 
-def read_admission_conf(file_path: str) -> dict:
+def read_admission_conf(file_path: str) -> Optional[dict]:
     """Read admission configuration."""
     try:
         with open(file_path, "r") as file:
@@ -131,7 +131,7 @@ def read_admission_conf(file_path: str) -> dict:
         return None
 
 
-def check_admission(data: dict, admission_conf: dict) -> tuple[bool, dict]:
+def check_admission(data: dict, admission_conf: dict) -> tuple[bool, Optional[dict]]:
     return_val = (False, None)
 
     if admission_conf is None:
@@ -163,7 +163,7 @@ def check_admission(data: dict, admission_conf: dict) -> tuple[bool, dict]:
     return return_val
 
 
-def submit_job(data_dict: dict, nersc_dict: dict) -> Final[int]:
+def submit_job(data_dict: dict, nersc_dict: dict) -> int:
     """Run the job."""
     logging.info(f"Repository: {data_dict['repository']['full_name']}")
     logging.info(f"Branch: {data_dict['workflow_job']['head_branch']}")
