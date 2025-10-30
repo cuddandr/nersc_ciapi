@@ -240,6 +240,7 @@ def filter_sacct(data: dict) -> dict:
     failed_jobs = sum(1 for job in jobs if job["state"] == "FAILED")
     pending_jobs = sum(1 for job in jobs if job["state"] == "PENDING")
     timeout_jobs = sum(1 for job in jobs if job["state"] == "TIMEOUT")
+    cancelled_jobs = sum(1 for job in jobs if job["state"] == "CANCELLED")
 
     return {
         "jobs": jobs,
@@ -249,6 +250,7 @@ def filter_sacct(data: dict) -> dict:
         "failed_jobs": failed_jobs,
         "pending_jobs": pending_jobs,
         "timeout_jobs": timeout_jobs,
+        "cancelled_jobs": cancelled_jobs,
     }
 
 
@@ -271,7 +273,7 @@ async def get_queue_info(days: int = 1) -> Response:
     session.fetch_token()
     # Build command to get SLURM queue via sacct
     start_date = date.today() - timedelta(days=days)
-    cmd = f'bash -c "sacct -a -X -A dune --json -S {start_date}"'
+    cmd = f'bash -c "sacct -a -X -A dune,dune_g --json -S {start_date}"'
     try:
         # Run sacct on Perlmutter
         logging.info("Running sacct on Perlmutter")

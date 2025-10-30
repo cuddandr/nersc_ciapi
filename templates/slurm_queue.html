@@ -129,6 +129,10 @@
                             <h3>Pending</h3>
                             <div class="number" style="color: #ffc107;">${data.pending_jobs}</div>
                         </div>
+                        <div class="stat-card">
+                            <h3>Cancelled</h3>
+                            <div class="number" style="color: ##e2e3e5;">${data.cancelled_jobs}</div>
+                        </div>
                     </div>
                 `;
 
@@ -153,11 +157,12 @@
                                 <tbody>
                     `;
                     data.jobs.forEach((job) => {
+                        const maxStrLen = 30
                         const statusClass = `status-${job.state.toString().toLowerCase()}`;
                         jobsTableHtml += `
                             <tr>
                                 <td><strong>${job.jobid}</strong></td>
-                                <td>${job.jobname}</td>
+                                <td>${job.jobname.substring(0, maxStrLen)}</td>
                                 <td>${job.account}</td>
                                 <td>${job.user}</td>
                                 <td>
