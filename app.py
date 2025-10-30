@@ -190,7 +190,7 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
     session.fetch_token()
     # Build command to start runner
     dir = nersc_dict["cluster"]["perlmutter"]["target_dir"]
-    cmd = f"{dir}/scripts/start_runner.sh {nersc_dict['_id']}"
+    cmd = f"cd {dir}; {dir}/scripts/start_runner.sh {nersc_dict['_id']}"
     try:
         # Validate NERSC username
         logging.info(f"Checking NERSC username: {nersc_dict['user']}.")
