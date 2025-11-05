@@ -2,8 +2,14 @@
 module load python/3.11
 CI_CLIENT_DIR=${PWD}
 
+mongodb_env=${MONGODB_ENV:-"mongo_env.sh"}
+if [ -f "${mongodb_env}" ]; then
+    echo "Loading MONGODB vars from ${mongodb_env}"
+    source ${mongodb_env}
+fi
+
 WEBHOOK_DB_ID=${1}
-runner_dir=$SCRATCH/temp
+runner_dir=$SCRATCH/gh_runner
 
 mkdir -p ${runner_dir}
 gh_dir=$(mktemp -d -p ${runner_dir})
@@ -19,10 +25,10 @@ else
     source ${VENV_NAME}/bin/activate
 fi
 
-MONGODB_URI=""
-MONGODB_DB_NAME="github_webhooks"
-MONGODB_COLLECTION="webhooks"
-python3 scripts/get_webhook.py --uri $MONGODB_URI -d $MONGODB_DB_NAME -c $MONGODB_COLLECTION --field _id --value $WEBHOOK_DB_ID > ${gh_dir}/payload.json
+mongodb_url=${MONGODB_URL:-"mongodb://localhost:27017"}
+mongodb_name=${MONGODB_NAME:-"github_webhooks"}
+mongodb_collection=${MONGODB_COLLECTION:-"webhooks"}
+python3 scripts/get_webhook.py --uri $mongodb_url -d $mongodb_name -c $mongodb_collection --field _id --value $WEBHOOK_DB_ID > ${gh_dir}/payload.json
 
 cd ${gh_dir}
 echo "Current dir: ${PWD}"

@@ -1,3 +1,5 @@
 __pycache__
 env/
 *.pem
+*.jwt
+mongo_env.sh
