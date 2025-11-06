@@ -593,13 +593,13 @@ def create_profiles_chart(profiles: list) -> str:
     top_ranges = sorted(range_averages.items(), key=lambda x: x[1], reverse=True)[:10]
     top_range_names = [r[0] for r in top_ranges]
 
-    # Prepare data for stacked bar chart
     fig = go.Figure()
 
     # Create a bar for each range
     for range_name in top_range_names:
         x_labels = []
         y_values = []
+        rel_times = []
 
         for profile in profiles:
             # Create label from timestamp and source file
@@ -615,30 +615,32 @@ def create_profiles_chart(profiles: list) -> str:
 
             x_labels.append(label)
 
-            # Find relative time for this range
-            rel_time = 0
             for metric in profile.get('metrics', []):
                 if metric['range'] == range_name:
+                    tot_time = metric['totalTime'] / 1000.0
                     rel_time = metric['relativeTime']
                     break
-            y_values.append(rel_time)
+            y_values.append(tot_time)
+            rel_times.append(rel_time)
 
         fig.add_trace(go.Bar(
             name=range_name,
             x=x_labels,
             y=y_values,
-            text=[f"{range_name}<br>{v:.1f}%" for v in y_values],
+            customdata=rel_times,
+            text=[f"{range_name}<br>{v:.2f}s" for v in y_values],
             textposition='inside',
-            textfont=dict(size=10),
-            hovertemplate='<b>%{fullData.name}</b><br>%{y:.2f}%<extra></extra>'
+            textfont=dict(size=11),
+            hovertemplate='<b>%{fullData.name}</b><br>' +
+                          'Total: %{y:.2f}s<br>' +
+                          'Relative: %{customdata:.1f}%<extra></extra>'
         ))
 
     fig.update_layout(
         barmode='stack',
-        title='Profiling Data: Relative Time by Range',
+        title='Profiling Data: Total Time by Range',
         xaxis_title='Profile Run',
-        yaxis_title='Relative Time (%)',
-        yaxis_range=[0.0, 100.0],
+        yaxis_title='Total Time (s)',
         template='plotly_dark',
         height=600,
         showlegend=True,
