@@ -406,7 +406,12 @@ async def list_webhooks(
     - event_type: Filter by GitHub event type (optional)
     """
     mongo_service: MongoDBService = state.mongo_service
-    webhooks = await mongo_service.get_webhooks(limit=limit, event_type=event_type)
+
+    try:
+        webhooks = await mongo_service.get_webhooks(limit=limit, event_type=event_type)
+    except Exception as e:
+        logging.error(f"Error pinging MongoDB server: {e}")
+        return {"count": 0, "webhooks": None}
 
     return {"count": len(webhooks), "webhooks": webhooks}
 
@@ -419,7 +424,7 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
     # Check if connection established to MongoDB and show error page if not
     if not hasattr(state, "mongo_service") or state.mongo_service is None:
         return Template(
-            template_name="error.html",
+            template_name="mongo_error.html",
             context={
                 "error_type": "MongoDB Connection Failed",
                 "mongodb_url": MONGODB_URL,
@@ -504,7 +509,7 @@ async def profiles_list(state: State) -> Template:
     # Check if MongoDB is connected
     if not hasattr(state, 'mongo_service') or state.mongo_service is None:
         return Template(
-            template_name="error.html",
+            template_name="mongo_error.html",
             context={
                 "error_type": "MongoDB Connection Failed",
                 "mongodb_url": MONGODB_URL,
@@ -528,7 +533,7 @@ async def profiles_list(state: State) -> Template:
         )
     except Exception as e:
         return Template(
-            template_name="error.html",
+            template_name="mongo_error.html",
             context={
                 "error_type": "MongoDB Error",
                 "mongodb_url": MONGODB_URL,
