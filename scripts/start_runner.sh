@@ -1,6 +1,11 @@
 #!/bin/bash
 module load python/3.11
-CI_CLIENT_DIR=${PWD}
+ci_client_dir=${PWD}
+
+log_dir=${ci_client_dir}/logs
+log_file="start_runner_${1}.log"
+mkdir -p ${log_dir}
+exec &> "${log_dir}/${log_file}"
 
 mongodb_env=${MONGODB_ENV:-"mongo_env.sh"}
 if [ -f "${mongodb_env}" ]; then
@@ -8,11 +13,13 @@ if [ -f "${mongodb_env}" ]; then
     source ${mongodb_env}
 fi
 
-WEBHOOK_DB_ID=${1}
+webhook_db_id=${1}
 runner_dir=$SCRATCH/gh_runner
+echo "Webhook ID: ${webhook_db_id}"
 
 mkdir -p ${runner_dir}
 gh_dir=$(mktemp -d -p ${runner_dir})
+echo "Created ${gh_dir}"
 
 VENV_NAME="env/"
 if [ ! -d "${VENV_NAME}" ]; then
@@ -25,15 +32,16 @@ else
     source ${VENV_NAME}/bin/activate
 fi
 
+echo "Downloading webhook payload..."
 mongodb_url=${MONGODB_URL:-"mongodb://localhost:27017"}
 mongodb_name=${MONGODB_NAME:-"github_webhooks"}
 mongodb_collection=${MONGODB_COLLECTION:-"webhooks"}
-python3 scripts/get_webhook.py --uri $mongodb_url -d $mongodb_name -c $mongodb_collection --field _id --value $WEBHOOK_DB_ID > ${gh_dir}/payload.json
+python3 scripts/get_webhook.py --uri $mongodb_url -d $mongodb_name -c $mongodb_collection --field _id --value $webhook_db_id > ${gh_dir}/payload.json
 
 cd ${gh_dir}
 echo "Current dir: ${PWD}"
 repo=$(jq -r '.repository.full_name' payload.json)
-echo "${repo}"
+echo "Repository: ${repo}"
 
 echo "Downloading GH self-hosted runner..."
 curl -sS -o actions-runner-linux-x64-2.329.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.329.0/actions-runner-linux-x64-2.329.0.tar.gz
@@ -53,7 +61,6 @@ echo "${token}" >> token.txt
 ./config.sh --unattended --url https://github.com/${repo} --token ${token} --ephemeral --labels perlmutter,gpu
 
 echo "PAYLOAD_FILE=$(realpath payload.json)" >> .env
-
 echo "Starting job."
 # srun ./run.sh
-sbatch ${CI_CLIENT_DIR}/scripts/sbatch_runner.sh
+sbatch ${ci_client_dir}/scripts/sbatch_runner.sh

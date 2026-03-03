@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Profiling Data{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h2>📊 Profiling Data</h2>
+    <a href="/" class="back-link">← Back to Dashboard</a>
+</div>
+
+{% if profiles %}
+<div class="stat-card" style="margin-bottom: 30px;">
+    <h3>Total Profiles</h3>
+    <div class="value" style="font-size: 24px; color: #58a6ff;">{{ profiles|length }}</div>
+</div>
+
+<div style="background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 20px; margin-bottom: 30px;">
+    {{ chart_html|safe }}
+</div>
+
+<h2>Profile Runs</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Timestamp</th>
+            <th>Source File</th>
+            <th>Total Ranges</th>
+            <th>Total Time (ms)</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for profile in profiles %}
+        <tr>
+            <td class="timestamp">{{ profile.timestamp.strftime('%Y-%m-%d %H:%M:%S') if profile.timestamp else 'N/A' }}</td>
+            <td>{{ profile.source_file or 'N/A' }}</td>
+            <td>{{ profile.total_ranges or 0 }}</td>
+            <td>{{ "%.2f"|format(profile.total_time_ms or 0) }}</td>
+            <td><a href="/profile/{{ profile._id }}">View →</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p style="text-align: center; padding: 40px; color: #8b949e;">
+    No profiling data available yet.
+</p>
+{% endif %}
+{% endblock %}

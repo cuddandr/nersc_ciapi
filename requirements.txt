@@ -3,3 +3,4 @@ litestar[standard]
 pymongo
 requests
 jq
+plotly

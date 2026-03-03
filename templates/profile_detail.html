@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Profile Details{% endblock %}
+
+{% block content %}
+<a href="/profiles" class="back-link">← Back to Profiles</a>
+
+<h2>Profile Details</h2>
+<div class="stat-card" style="margin-bottom: 20px;">
+    <h3>Source File</h3>
+    <div style="margin-top: 10px; color: #58a6ff;">{{ profile.source_file or 'N/A' }}</div>
+
+    <h3 style="margin-top: 15px;">Timestamp</h3>
+    <div class="timestamp">{{ profile.timestamp.strftime('%Y-%m-%d %H:%M:%S %Z') if profile.timestamp else 'N/A' }}</div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px;">
+        <div>
+            <h3>Total Ranges</h3>
+            <div style="font-size: 24px; color: #58a6ff; margin-top: 5px;">{{ profile.total_ranges or 0 }}</div>
+        </div>
+        <div>
+            <h3>Total Time</h3>
+            <div style="font-size: 24px; color: #58a6ff; margin-top: 5px;">{{ "%.2f"|format(profile.total_time_ms / 1000.0 or 0) }} s</div>
+        </div>
+        <div>
+            <h3>Profile ID</h3>
+            <div style="font-size: 18px; color: #8b949e; font-family: monospace; margin-top: 8px;">{{ profile._id }}</div>
+        </div>
+    </div>
+</div>
+
+<h2>Performance Chart</h2>
+<div style="background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 20px; margin-bottom: 30px;">
+    {{ chart_html|safe }}
+</div>
+
+<h2>NVTX Range Details</h2>
+<div style="overflow-x: auto;">
+    <table>
+        <thead>
+            <tr>
+                <th>Range</th>
+                <th>Relative Time (%)</th>
+                <th>Total Time (ms)</th>
+                <th>Instances</th>
+                <th>Avg (ms)</th>
+                <th>Min (ms)</th>
+                <th>Max (ms)</th>
+                <th>Std Dev</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for metric in profile.metrics %}
+            <tr>
+                <td><code style="font-size: 12px;">{{ metric.range }}</code></td>
+                <td>{{ "%.2f"|format(metric.relativeTime) }}%</td>
+                <td>{{ "%.2f"|format(metric.totalTime) }}</td>
+                <td>{{ metric.instances }}</td>
+                <td>{{ "%.3f"|format(metric.avg) }}</td>
+                <td>{{ "%.3f"|format(metric.min) }}</td>
+                <td>{{ "%.3f"|format(metric.max) }}</td>
+                <td>{{ "%.3f"|format(metric.stdDev) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
