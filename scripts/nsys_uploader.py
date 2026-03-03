@@ -63,15 +63,16 @@ def upload_csv_files(csv_files: List[Path], database_name: str, collection_name:
                      dry_run: bool = False) -> None:
     """Upload CSV files to MongoDB."""
 
-    mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/')
+    mongo_url = os.getenv('MONGODB_URL', 'mongodb://localhost:27017/')
     mongo_user = os.getenv('MONGODB_USER')
     mongo_pass = os.getenv('MONGODB_PASSWORD')
 
     # Connect to MongoDB
     try:
-        client = MongoClient(mongo_uri, username=mongo_user, password=mongo_pass, serverSelectionTimeoutMS=5000)
+        # client = MongoClient(mongo_uri, username=mongo_user, password=mongo_pass, serverSelectionTimeoutMS=5000)
+        client = MongoClient(mongo_url, serverSelectionTimeoutMS=5000)
         client.admin.command('ping')
-        print(f"Connected to MongoDB: {mongo_uri}")
+        print(f"Connected to MongoDB: {mongo_url}")
     except ConnectionFailure as e:
         print(f"Failed to connect to MongoDB: {e}", file=sys.stderr)
         sys.exit(1)
