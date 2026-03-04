@@ -158,6 +158,7 @@ def read_admission_conf(file_path: str) -> Optional[dict]:
 
 
 def check_admission(data: dict, admission_conf: dict) -> tuple[bool, Optional[dict]]:
+    cluster = admission_conf["clusters"][HPC_CLUSTER]
     return_val = (False, None)
 
     if admission_conf is None:
@@ -168,39 +169,41 @@ def check_admission(data: dict, admission_conf: dict) -> tuple[bool, Optional[di
         return return_val
 
     if data["action"] != "queued":
-        logging.info("Not admitted, job not queued")
+        logging.info("Not admitted, job action is not queued")
         return return_val
 
     if "labels" not in data["workflow_job"]:
         logging.info("Not admitted, no runner label specified")
         return return_val
 
+    if data["sender"]["login"] not in cluster["users"]:
+        logging.info("Not admitted, not an approved user.")
+        return return_val
+
     for i in admission_conf["repository"]:
         if data["repository"]["full_name"] != i["name"]:
             continue
-        elif data["workflow_job"]["head_branch"] not in i["branch"]:
-            continue
-        elif data["sender"]["login"] not in i["user"]:
+        elif data["workflow_job"]["head_branch"] not in i["branches"]:
             continue
         else:
-            nersc_user = i["user"][data["sender"]["login"]]
-            return_val = (True, {"user": nersc_user, "cluster": i["cluster"]})
+            nersc_user = cluster["users"][data["sender"]["login"]]
+            return_val = (True, {"user": nersc_user})
             break
     return return_val
 
 
 def submit_job(data_dict: dict, nersc_dict: dict) -> int:
     """Run the job."""
+    cluster = ADMISSION_CONF["clusters"][HPC_CLUSTER]
     logging.info(f"Repository: {data_dict['repository']['full_name']}")
     logging.info(f"Branch: {data_dict['workflow_job']['head_branch']}")
     logging.info(f"Sender: {data_dict['sender']['login']}")
-    print(nersc_dict["cluster"])
 
-    client_id = read_file_content(nersc_dict["cluster"]["perlmutter"]["client_id"]).strip()
-    private_key = read_file_content(nersc_dict["cluster"]["perlmutter"]["private_key"])
+    client_id = read_file_content(cluster["client_id"]).strip()
+    private_key = read_file_content(cluster["private_key"])
 
     # Authenticate session for SF-API
-    logging.info("Running on Perlmutter")
+    logging.info(f"Running on {HPC_CLUSTER} as {cluster['account']}")
     logging.info(f"CLIENT_ID = {client_id}")
     logging.info(f"TOKEN_URL = {TOKEN_URL}")
     session = OAuth2Session(
@@ -212,7 +215,7 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
     )
     session.fetch_token()
     # Build command to start runner
-    dir = nersc_dict["cluster"]["perlmutter"]["target_dir"]
+    dir = cluster["target_dir"]
     cmd = f"cd {dir}; {dir}/scripts/start_runner.sh {nersc_dict['_id']}"
     try:
         # Validate NERSC username
@@ -223,6 +226,7 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
         logging.info(f"{nersc_dict['user']} valid NERSC user.")
 
         # Run script on Perlmutter
+        logging.info(f"Submittig task via Superfacility API.")
         r = session.post(
             "https://api.nersc.gov/api/v1.2/utilities/command/perlmutter", data={"executable": cmd}
         )
@@ -279,11 +283,11 @@ def filter_sacct(data: dict) -> dict:
 
 @get("/queue-data")
 async def get_queue_info(days: int = 1) -> Response:
-    client_id = read_file_content(ADMISSION_CONF["sfapi_client_id"]).strip()
-    private_key = read_file_content(ADMISSION_CONF["sfapi_private_key"])
+    client_id = read_file_content(ADMISSION_CONF['clusters'][HPC_CLUSTER]["client_id"]).strip()
+    private_key = read_file_content(ADMISSION_CONF['clusters'][HPC_CLUSTER]["private_key"])
 
     # Authenticate session for SF-API
-    logging.info("Running on Perlmutter")
+    logging.info(f"Running on {HPC_CLUSTER} as {cluster['account']}")
     logging.info(f"CLIENT_ID = {client_id}")
     logging.info(f"TOKEN_URL = {TOKEN_URL}")
     session = OAuth2Session(
@@ -299,7 +303,7 @@ async def get_queue_info(days: int = 1) -> Response:
     cmd = f'bash -c "sacct -a -X -A dune,dune_g --json -S {start_date}"'
     try:
         # Run sacct on Perlmutter
-        logging.info("Running sacct on Perlmutter")
+        logging.info(f"Running sacct on {HPC_CLUSTER}")
         r = session.post(
             "https://api.nersc.gov/api/v1.2/utilities/command/perlmutter", data={"executable": cmd}
         )
@@ -795,6 +799,7 @@ MONGODB_DB = os.getenv("MONGODB_DB", "github_webhooks")
 MONGODB_USER = os.getenv("MONGODB_USER", "")
 MONGODB_PASS = os.getenv("MONGODB_PASS", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+HPC_CLUSTER = os.getenv("HPC_CLUSTER", "perlmutter")
 TZINFO = os.getenv("TZINFO", "US/Pacific")
 TOKEN_URL = os.environ.get("TOKEN_URL", "https://oidc.nersc.gov/c2id/token")
 ADMISSION_CONF_FILE = os.environ.get("ADMISSION_CONF_FILE", "configs/admission.yaml")

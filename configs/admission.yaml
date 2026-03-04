@@ -12,20 +12,22 @@
     - "2a0a:a440::/29"
     - "2606:50c0::/32"
 
-  repository:
-    - name: DUNE/larnd-sim
-      user:
+  clusters:
+    perlmutter:
+      host: perlmutter.nersc.gov
+      account: dunepro
+      allocation: dune
+      protocol: sfapi
+      client_id: /secrets/dune/sfapi.client_id.txt
+      private_key: /secrets/dune/sfapi.priv_key.pem
+      target_dir: ${SCRATCH}/nersc_ciapi
+      users:
         dingp: dingp
         cuddandr: cuddandr
         mkramer: mkramer
-      branch:
+
+  repository:
+    - name: DUNE/larnd-sim
+      branches:
         - develop
       webhook_secret: /secrets/dune/larnd-sim/webhook
-      cluster:
-        perlmutter:
-          host: perlmutter.nersc.gov
-          account: dune
-          protocol: sfapi
-          client_id: /secrets/dune/sfapi.client_id.txt
-          private_key: /secrets/dune/sfapi.priv_key.pem
-          target_dir: ${SCRATCH}/nersc_ciapi
