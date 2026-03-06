@@ -44,9 +44,9 @@ repo=$(jq -r '.repository.full_name' payload.json)
 echo "Repository: ${repo}"
 
 echo "Downloading GH self-hosted runner..."
-curl -sS -o actions-runner-linux-x64-2.329.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.329.0/actions-runner-linux-x64-2.329.0.tar.gz
-echo "194f1e1e4bd02f80b7e9633fc546084d8d4e19f3928a324d512ea53430102e1d  actions-runner-linux-x64-2.329.0.tar.gz" | shasum -a 256 -c
-tar xzf ./actions-runner-linux-x64-2.329.0.tar.gz
+curl -o actions-runner-linux-x64-2.332.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.332.0/actions-runner-linux-x64-2.332.0.tar.gz
+echo "f2094522a6b9afeab07ffb586d1eb3f190b6457074282796c497ce7dce9e0f2a  actions-runner-linux-x64-2.332.0.tar.gz" | shasum -a 256 -c
+tar xzf ./actions-runner-linux-x64-2.332.0.tar.gz
 
 echo "Retrieving GH access token..."
 token=$(gh api \
