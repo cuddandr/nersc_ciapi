@@ -280,11 +280,15 @@ def filter_sacct(data: dict) -> dict:
         "cancelled_jobs": cancelled_jobs,
     }
 
-
-@get("/queue-data")
+# cache is in seconds; need to write a custom filter to only cache on successful responses
+@get("/queue-data", cache=180)
 async def get_queue_info(days: int = 1) -> Response:
-    client_id = read_file_content(ADMISSION_CONF['clusters'][HPC_CLUSTER]["client_id"]).strip()
-    private_key = read_file_content(ADMISSION_CONF['clusters'][HPC_CLUSTER]["private_key"])
+    wait_time = 15 # seconds to wait in between polling the SF API task
+    num_attempts = 4 # total tries to get the data before giving up
+
+    cluster = ADMISSION_CONF["clusters"][HPC_CLUSTER]
+    client_id = read_file_content(cluster["client_id"]).strip()
+    private_key = read_file_content(cluster["private_key"])
 
     # Authenticate session for SF-API
     logging.info(f"Running on {HPC_CLUSTER} as {cluster['account']}")
@@ -312,27 +316,33 @@ async def get_queue_info(days: int = 1) -> Response:
         post_output = r.json()
 
         # It takes some time to actually run the command on Perlmutter and have the output available
-        # Right now just sleep and hope that it is ready to retrieve
-        time.sleep(30)
-
+        # Delay the task retreival and try a finite number of attempts before giving up
+        time.sleep(wait_time)
         logging.info("Getting task output.")
-        r = session.get(f"https://api.nersc.gov/api/v1.2/tasks/{post_output['task_id']}")
-        r.raise_for_status()
-        get_output = r.json()
 
-        # Extract `sacct` output from the SF API task payload
         data = {}
-        if get_output["result"]:
-            task_output = json.loads(get_output["result"])
-            task_output = json.loads(task_output["output"])
-            data["jobs"] = task_output["jobs"]
-        else:
-            data["jobs"] = []
+        data["jobs"] = []
+        http_status_code = status_code.HTTP_504_GATEWAY_TIMEOUT
+        for i in range(num_attempts):
+            logging.info(f"Attempt {i}")
+            r = session.get(f"https://api.nersc.gov/api/v1.2/tasks/{post_output['task_id']}")
+            r.raise_for_status()
+            get_output = r.json()
+
+            # Extract `sacct` output from the SF API task payload
+            if get_output["result"]:
+                task_output = json.loads(get_output["result"])
+                task_output = json.loads(task_output["output"])
+                data["jobs"] = task_output["jobs"]
+                http_status_code = status_code.HTTP_200_OK
+                break
+            else:
+                time.sleep(wait_time)
 
         filtered = filter_sacct(data)
         return Response(
             content=filtered,
-            status_code=status_code.HTTP_200_OK,
+            status_code=http_status_code,
         )
 
     except Exception as e:
