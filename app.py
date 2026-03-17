@@ -7,6 +7,7 @@ logging.basicConfig(
 import hashlib, hmac
 import json, jq, yaml
 import os, time
+import ipaddress
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any, Optional
@@ -133,6 +134,20 @@ def read_file_content(file_path: str) -> str:
     except Exception as e:
         logging.error(f"Error: {e}")
         return ""
+
+
+def is_ip_authorized(ip: str, cidr_ranges: list[str]) -> bool:
+    """Check if an IP address falls within any of the authorized CIDR ranges."""
+    logging.info(f"Client IP: {ip}")
+    logging.info(f"Checking the following IP ranges: {cidr_ranges}")
+    try:
+        client_ip = ipaddress.ip_address(ip)
+        return any(
+            client_ip in ipaddress.ip_network(cidr, strict=False)
+            for cidr in cidr_ranges
+        ) # returns true if any iterable evaluates to 'truthy'
+    except ValueError:
+        return False
 
 
 def verify_github_signature(payload_body: bytes, signature_header: str, secret: str) -> bool:
@@ -316,7 +331,7 @@ async def get_queue_info(days: int = 1) -> Response:
         post_output = r.json()
 
         # It takes some time to actually run the command on Perlmutter and have the output available
-        # Delay the task retreival and try a finite number of attempts before giving up
+        # Delay the task retrieval and try a finite number of attempts before giving up
         time.sleep(wait_time)
         logging.info("Getting task output.")
 
@@ -360,10 +375,20 @@ async def receive_webhook(
 
     GitHub will send POST requests to this endpoint with webhook payloads
     """
-    # Get the signature from headers
     logging.info("Received hook.")
+    # Get the signature and event type from headers
     signature = request.headers.get("X-Hub-Signature-256") or request.headers.get("X-Hub-Signature")
     event_type = request.headers.get("X-GitHub-Event", "unknown")
+    # Attempt to grab the original IP address the webhook came from
+    client_host = request.headers.get("X-Forwarded-For", request.client.host)
+    # X-Forwarded-For can be a comma-separated list; the first entry is the original client
+    client_host = client_host.split(",")[0].strip()
+
+    if VERIFY_IP and not is_ip_authorized(client_host, ADMISSION_CONF['ip_range']):
+        logging.info(f"Invalid client IP: {client_host}")
+        return Response(
+            content={"error": "Invalid client IP"}, status_code=status_code.HTTP_400_BAD_REQUEST
+        )
 
     if not signature and WEBHOOK_SECRET:
         return Response(
@@ -809,6 +834,7 @@ MONGODB_DB = os.getenv("MONGODB_DB", "github_webhooks")
 MONGODB_USER = os.getenv("MONGODB_USER", "")
 MONGODB_PASS = os.getenv("MONGODB_PASS", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+VERIFY_IP = os.getenv("VERIFY_IP", "")
 HPC_CLUSTER = os.getenv("HPC_CLUSTER", "perlmutter")
 TZINFO = os.getenv("TZINFO", "US/Pacific")
 TOKEN_URL = os.environ.get("TOKEN_URL", "https://oidc.nersc.gov/c2id/token")
