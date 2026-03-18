@@ -152,11 +152,14 @@ def is_ip_authorized(ip: str, cidr_ranges: list[str]) -> bool:
 
 def verify_github_signature(payload_body: bytes, signature_header: str, secret: str) -> bool:
     """Verify that the webhook came from GitHub"""
+    logging.info("Verifying hook signature.")
     if not signature_header or not secret:
         return False
 
     hash_object = hmac.new(secret.encode("utf-8"), msg=payload_body, digestmod=hashlib.sha256)
     expected_signature = "sha256=" + hash_object.hexdigest()
+    logging.info(f"Calc hash: {expected_signature}")
+    logging.info(f"Hook hash: {signature_header}")
     return hmac.compare_digest(expected_signature, signature_header)
 
 
@@ -214,7 +217,8 @@ def submit_job(data_dict: dict, nersc_dict: dict) -> int:
     logging.info(f"Branch: {data_dict['workflow_job']['head_branch']}")
     logging.info(f"Sender: {data_dict['sender']['login']}")
 
-    client_id = read_file_content(cluster["client_id"]).strip()
+    # Read API secrets from files
+    client_id = read_file_content(cluster["client_id"]).strip() # Remove any trailing whitespace
     private_key = read_file_content(cluster["private_key"])
 
     # Authenticate session for SF-API
@@ -377,7 +381,7 @@ async def receive_webhook(
     """
     logging.info("Received hook.")
     # Get the signature and event type from headers
-    signature = request.headers.get("X-Hub-Signature-256") or request.headers.get("X-Hub-Signature")
+    signature = request.headers.get("X-Hub-Signature-256")
     event_type = request.headers.get("X-GitHub-Event", "unknown")
     # Attempt to grab the original IP address the webhook came from
     client_host = request.headers.get("X-Forwarded-For", request.client.host)
@@ -391,24 +395,27 @@ async def receive_webhook(
         )
 
     if not signature and WEBHOOK_SECRET:
+        logging.info(f"Missing signature.")
         return Response(
             content={"error": "Missing signature"}, status_code=status_code.HTTP_400_BAD_REQUEST
         )
 
     # Get raw body for signature verification
     body = await request.body()
+    # Get json payload for the actual webhook info
+    payload = await request.json()
 
     # Verify the webhook signature if secret is configured
     if WEBHOOK_SECRET:
-        logging.info("Verifying hook.")
-        if not verify_github_signature(body, signature, WEBHOOK_SECRET):
+        webhook_secret = read_file_content(WEBHOOK_SECRET).strip() # Remove any trailing whitespace
+        if not verify_github_signature(body, signature, webhook_secret):
+            logging.info("Invalid signature.")
             return Response(
                 content={"error": "Invalid signature"},
                 status_code=status_code.HTTP_401_UNAUTHORIZED,
             )
         else:
             logging.info("Verification succeeded.")
-    payload = await request.json()
 
     logging.info("Storing in MongoDB.")
     mongo_service: MongoDBService = state.mongo_service
@@ -417,11 +424,11 @@ async def receive_webhook(
     )
 
     logging.info("Checking job admission.")
-    permission, nersc_config = check_admission(payload, ADMISSION_CONF)
+    permission, nersc_config = check_admission(payload, ADMISSION_CONF) #TODO: Not really necessary to pass the CONF file as it is a global
     if not permission:
-        logging.info("Job not admitted")
+        logging.info("Job not admitted.")
         return Response(
-            content={"error": "Job not admitted."}, status_code=status_code.HTTP_401_UNAUTHORIZED
+            content={"error": "Job not admitted"}, status_code=status_code.HTTP_401_UNAUTHORIZED
         )
     logging.info("Job admitted.")
     nersc_config["_id"] = webhook_id
