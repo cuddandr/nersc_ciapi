@@ -24,19 +24,22 @@ from authlib.oauth2.rfc7523 import PrivateKeyJWT
 from litestar import Litestar, post, get, Request, Response, MediaType
 from litestar.datastructures import State
 from litestar.logging import LoggingConfig
+from litestar.middleware.session.client_side import CookieBackendConfig
 from litestar.openapi.config import OpenAPIConfig
 from litestar.openapi.plugins import SwaggerRenderPlugin
 from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.template.config import TemplateConfig
 from litestar.response import Template
 from litestar.static_files import create_static_files_router
-from litestar.exceptions import NotFoundException, HTTPException
+from litestar.exceptions import NotFoundException, HTTPException, NotAuthorizedException
 import litestar.status_codes as status_code
 
 from jinja2 import Environment, PackageLoader
 
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
+
+from auth import auth_router, require_login, get_session_secret, MAX_SESSION_AGE
 
 
 class MongoDBService:
@@ -300,7 +303,7 @@ def filter_sacct(data: dict) -> dict:
     }
 
 # cache is in seconds; need to write a custom filter to only cache on successful responses
-@get("/queue-data", cache=180)
+@get("/queue-data", cache=180, guards=[require_login])
 async def get_queue_info(days: int = 1) -> Response:
     wait_time = 15 # seconds to wait in between polling the SF API task
     num_attempts = 4 # total tries to get the data before giving up
@@ -440,7 +443,7 @@ async def receive_webhook(
     )
 
 
-@get("/webhooks")
+@get("/webhooks", guards=[require_login])
 async def list_webhooks(
     state: State, limit: int = 10, event_type: Optional[str] = None
 ) -> dict[str, Any]:
@@ -462,7 +465,7 @@ async def list_webhooks(
     return {"count": len(webhooks), "webhooks": webhooks}
 
 
-@get("/")
+@get("/", guards=[require_login])
 async def index(state: State, event_type: Optional[str] = None) -> Template:
     """
     Homepage showing webhook dashboard
@@ -507,7 +510,7 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
         )
 
 
-@get("/webhooks/{webhook_id:str}")
+@get("/webhooks/{webhook_id:str}", guards=[require_login])
 async def webhook_detail(state: State, webhook_id: str) -> Template:
     """
     Detailed view of a single webhook
@@ -535,7 +538,7 @@ async def webhook_detail(state: State, webhook_id: str) -> Template:
     )
 
 
-@get("/queue")
+@get("/queue", guards=[require_login])
 async def display_queue(state: State, days: int = 1) -> Template:
     """
     Display Perlmutter job queue. Serves an initially empty webpage
@@ -547,7 +550,7 @@ async def display_queue(state: State, days: int = 1) -> Template:
         context={},
     )
 
-@get("/profiles")
+@get("/profiles", guards=[require_login])
 async def profiles_list(state: State) -> Template:
     """
     Page displaying all profiling runs with stacked bar chart
@@ -589,7 +592,7 @@ async def profiles_list(state: State) -> Template:
         )
 
 
-@get("/profile/{profile_id:str}")
+@get("/profile/{profile_id:str}", guards=[require_login])
 async def profile_detail(state: State, profile_id: str) -> Template:
     """
     Detailed view of a single profile with individual chart
@@ -803,6 +806,16 @@ def http_exception_handler(request: Request, exc: Exception) -> Response:
     provided_types = [MediaType.HTML, MediaType.JSON]
     preferred_type = request.accept.best_match(provided_types, default=MediaType.JSON)
 
+    # Unauthenticated/expired-session access to a page: send browsers back
+    # through the Globus login flow instead of showing a bare error page.
+    # Data endpoints hit via fetch/XHR (JSON) just get a 401 back.
+    if isinstance(exc, NotAuthorizedException) and preferred_type == MediaType.HTML:
+        from litestar.response import Redirect
+        from urllib.parse import urlencode
+
+        next_url = f"{request.url.path}?{request.url.query}" if request.url.query else request.url.path
+        return Redirect(f"/auth/login?{urlencode({'next': next_url})}")
+
     status_code = 500
     error_title = "Internal Server Error"
     error_message = "An unexpected error occurred."
@@ -811,6 +824,10 @@ def http_exception_handler(request: Request, exc: Exception) -> Response:
         status_code = 404
         error_title = "Page Not Found"
         error_message = "The page you're looking for doesn't exist."
+    elif isinstance(exc, NotAuthorizedException):
+        status_code = 401
+        error_title = "Unauthorized"
+        error_message = exc.detail or "Login required."
     elif isinstance(exc, HTTPException):
         status_code = exc.status_code
         error_title = f"Error {status_code}"
@@ -854,9 +871,17 @@ LITESTAR_LOG_CONF = LoggingConfig(
     log_exceptions="always",
 )
 
+# Session cookie mirrors the guard's MAX_SESSION_AGE as a belt-and-suspenders
+# measure: the browser stops sending the cookie at the same point the server
+# would reject it anyway.
+SESSION_CONFIG = CookieBackendConfig(
+    secret=get_session_secret(),
+    max_age=MAX_SESSION_AGE,
+)
+
 app = Litestar(
     route_handlers=[
-        receive_webhook,
+        receive_webhook,  # POST /webhooks — GitHub webhook, intentionally unauthenticated
         list_webhooks,
         index,
         webhook_detail,
@@ -865,6 +890,7 @@ app = Litestar(
         profiles_list,
         profile_detail,
         create_static_files_router(path="/static", directories=["static"]),
+        auth_router,  # /auth/login, /auth/callback, /auth/logout
     ],
     on_startup=[on_startup],
     on_shutdown=[on_shutdown],
@@ -879,9 +905,11 @@ app = Litestar(
         engine=JinjaTemplateEngine.from_environment(JINJA_ENV),
     ),
     logging_config=LITESTAR_LOG_CONF,
+    middleware=[SESSION_CONFIG.middleware],
     exception_handlers={
         HTTPException: http_exception_handler,
         NotFoundException: http_exception_handler,
+        NotAuthorizedException: http_exception_handler,
     },
 )
 
