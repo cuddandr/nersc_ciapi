@@ -2,14 +2,13 @@
 Globus Auth (OIDC) integration for gating the dashboard pages behind a
 NERSC login, while leaving the GitHub webhook POST endpoint untouched.
 
-Session policy:
-- MAX_SESSION_AGE: hard cap on how long a session is valid, regardless of activity.
-- IDLE_TIMEOUT: session is invalidated if there's been no authenticated
-  request within this window, even if MAX_SESSION_AGE hasn't been reached.
+Session policy (see config.SessionConfig):
+- max_age_seconds: hard cap on how long a session is valid, regardless of activity.
+- idle_timeout_seconds: session is invalidated if there's been no authenticated
+  request within this window, even if max_age_seconds hasn't been reached.
 """
 
 import logging
-import os
 import secrets
 import time
 from typing import Any, Optional
@@ -25,52 +24,7 @@ from litestar.params import Parameter
 from litestar.response import Redirect
 from litestar.datastructures import State
 
-
-def _read_secret_file(file_path: str) -> str:
-    """Read a secret value from a file (matches the pattern used elsewhere in app.py)."""
-    try:
-        with open(file_path, "r") as f:
-            return f.read().strip()
-    except Exception as e:
-        logging.error(f"Error reading secret file {file_path}: {e}")
-        return ""
-
-
-# --- Configuration (paths to secret files, matching WEBHOOK_SECRET/client_id/private_key style) ---
-GLOBUS_CLIENT_ID_FILE = os.getenv("GLOBUS_CLIENT_ID_FILE", "")
-GLOBUS_CLIENT_SECRET_FILE = os.getenv("GLOBUS_CLIENT_SECRET_FILE", "")
-SESSION_SECRET_FILE = os.getenv("SESSION_SECRET_FILE", "")
-
-GLOBUS_REDIRECT_URI = os.getenv("GLOBUS_REDIRECT_URI", "https://localhost:8000/auth/callback")
-GLOBUS_AUTH_BASE = "https://auth.globus.org"
-
-# The Globus identity provider UUID for NERSC logins. Confirm the exact
-# value with NERSC/Globus docs or a support ticket before deploying.
-NERSC_IDENTITY_PROVIDER_ID = os.getenv("NERSC_IDENTITY_PROVIDER_ID", "")
-
-# --- Session timeout policy ---
-MAX_SESSION_AGE = int(os.getenv("MAX_SESSION_AGE_SECONDS", str(8 * 60 * 60)))  # 8 hours
-IDLE_TIMEOUT = int(os.getenv("IDLE_TIMEOUT_SECONDS", str(30 * 60)))  # 30 minutes
-
-
-def get_globus_client_id() -> str:
-    return _read_secret_file(GLOBUS_CLIENT_ID_FILE)
-
-
-def get_globus_client_secret() -> str:
-    return _read_secret_file(GLOBUS_CLIENT_SECRET_FILE)
-
-
-def get_session_secret() -> bytes:
-    secret = _read_secret_file(SESSION_SECRET_FILE)
-    if not secret:
-        # Fail loudly in production rather than silently running with a
-        # throwaway key that invalidates on every restart / differs per worker.
-        raise RuntimeError(
-            "SESSION_SECRET_FILE is not configured or unreadable. "
-            "Set SESSION_SECRET_FILE to a file containing a random 32+ byte secret."
-        )
-    return secret.encode("utf-8")
+from config import config
 
 
 @get("/auth/login")
@@ -81,13 +35,13 @@ async def login(request: Any, next: str = "/") -> Redirect:
     request.session["post_login_redirect"] = next
 
     params = {
-        "client_id": get_globus_client_id(),
+        "client_id": config.globus.client_id,
         "response_type": "code",
         "scope": "openid profile email",
-        "redirect_uri": GLOBUS_REDIRECT_URI,
+        "redirect_uri": config.globus.redirect_uri,
         "state": state_token,
     }
-    url = f"{GLOBUS_AUTH_BASE}/v2/oauth2/authorize?{urlencode(params)}"
+    url = f"{config.globus.auth_base}/v2/oauth2/authorize?{urlencode(params)}"
     return Redirect(url)
 
 
@@ -105,26 +59,26 @@ async def callback(
 
     async with httpx.AsyncClient() as client:
         token_resp = await client.post(
-            f"{GLOBUS_AUTH_BASE}/v2/oauth2/token",
+            f"{config.globus.auth_base}/v2/oauth2/token",
             data={
                 "code": code,
-                "redirect_uri": GLOBUS_REDIRECT_URI,
+                "redirect_uri": config.globus.redirect_uri,
                 "grant_type": "authorization_code",
             },
-            auth=(get_globus_client_id(), get_globus_client_secret()),
+            auth=(config.globus.client_id, config.globus.client_secret),
         )
         token_resp.raise_for_status()
         tokens = token_resp.json()
 
         userinfo_resp = await client.get(
-            f"{GLOBUS_AUTH_BASE}/v2/oauth2/userinfo",
+            f"{config.globus.auth_base}/v2/oauth2/userinfo",
             headers={"Authorization": f"Bearer {tokens['access_token']}"},
         )
         userinfo_resp.raise_for_status()
         userinfo = userinfo_resp.json()
 
     identity_provider = userinfo.get("identity_provider")
-    if NERSC_IDENTITY_PROVIDER_ID and identity_provider != NERSC_IDENTITY_PROVIDER_ID:
+    if config.globus.nersc_identity_provider_id and identity_provider != config.globus.nersc_identity_provider_id:
         logging.warning(
             f"Rejected login from identity provider {identity_provider}: not NERSC."
         )
@@ -158,8 +112,8 @@ def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None:
     """
     Guard for route handlers. Enforces:
     - a logged-in user is present in the session
-    - the session hasn't exceeded MAX_SESSION_AGE since login
-    - the session hasn't been idle longer than IDLE_TIMEOUT
+    - the session hasn't exceeded config.session.max_age_seconds since login
+    - the session hasn't been idle longer than config.session.idle_timeout_seconds
 
     On success, refreshes the idle clock.
     """
@@ -173,11 +127,11 @@ def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None:
 
     now = time.time()
 
-    if now - authenticated_at > MAX_SESSION_AGE:
+    if now - authenticated_at > config.session.max_age_seconds:
         session.clear()
         raise NotAuthorizedException("Session expired, please log in again")
 
-    if now - last_seen > IDLE_TIMEOUT:
+    if now - last_seen > config.session.idle_timeout_seconds:
         session.clear()
         raise NotAuthorizedException("Session expired due to inactivity, please log in again")
 
