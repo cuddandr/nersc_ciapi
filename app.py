@@ -26,7 +26,7 @@ import litestar.status_codes as status_code
 
 from jinja2 import Environment, PackageLoader
 
-from auth import auth_router, require_login
+from auth import auth_router, require_login, session_user_context
 from profiles import profiles_router
 from config import config
 from mongodb import MongoDBService, on_startup, on_shutdown
@@ -239,7 +239,7 @@ async def list_webhooks(
 
 
 @get("/", guards=[require_login])
-async def index(state: State, event_type: Optional[str] = None) -> Template:
+async def index(request: Request, state: State, event_type: Optional[str] = None) -> Template:
     """
     Homepage showing webhook dashboard
     """
@@ -252,6 +252,7 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
                 "error_message": str(state.mongo_error),
+                **session_user_context(request),
             },
         )
 
@@ -269,6 +270,7 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
                 "event_types": event_types,
                 "stats": stats,
                 "selected_event_type": event_type,
+                **session_user_context(request),
             },
         )
     except Exception as e:
@@ -279,12 +281,13 @@ async def index(state: State, event_type: Optional[str] = None) -> Template:
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
                 "error_message": str(e),
+                **session_user_context(request),
             },
         )
 
 
 @get("/webhooks/{webhook_id:str}", guards=[require_login])
-async def webhook_detail(state: State, webhook_id: str) -> Template:
+async def webhook_detail(request: Request, state: State, webhook_id: str) -> Template:
     """
     Detailed view of a single webhook
     """
@@ -297,7 +300,8 @@ async def webhook_detail(state: State, webhook_id: str) -> Template:
                 "status_code": 404,
                 "error_title": "Webhook Not Found",
                 "error_message": "The webhook you're looking for doesn't exist.",
-                "request_path": f"/webhook/{webhook_id}"
+                "request_path": f"/webhook/{webhook_id}",
+                **session_user_context(request),
             },
             status_code=404
         )
@@ -354,6 +358,7 @@ def http_exception_handler(request: Request, exc: Exception) -> Response:
                 "error_title": error_title,
                 "error_message": error_message,
                 "request_path": request.url.path,
+                **session_user_context(request),
             },
             status_code=resp_status_code,
         )

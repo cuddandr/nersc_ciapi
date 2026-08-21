@@ -109,12 +109,44 @@
             color: #58a6ff;
         }
         .timestamp { color: #8b949e; font-size: 14px; }
+                header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .user-info {
+            text-align: right;
+            font-size: 13px;
+            color: #8b949e;
+            line-height: 1.4;
+        }
+        .user-info .user-name { color: #c9d1d9; font-weight: 600; }
+        .user-info .user-email { color: #8b949e; }
+        .user-info .user-idp { color: #58a6ff; font-family: 'Courier New', monospace; font-size: 11px; }
+        .user-info a.logout-link { color: #f85149; }
+        nav.main-nav {
+            /* Placeholder for an eventual nav bar */
+        }
     </style>
 </head>
 <body>
     <header>
         <div class="container">
             <h1>🪝 GitHub Webhook Dashboard</h1>
+            <nav class="main-nav">
+                {# eventual nav links go here #}
+            </nav>
+            {% if auth_user %}
+            <div class="user-info">
+                <div class="user-name">{{ auth_user.name or auth_user.username or 'Unknown user' }}</div>
+                {% if auth_user.username %}<div>{{ auth_user.username }}</div>{% endif %}
+                {% if auth_user.email %}<div class="user-email">{{ auth_user.email }}</div>{% endif %}
+                {% if auth_user.identity_provider %}<div class="user-idp">idp: {{ auth_user.identity_provider }}</div>{% endif %}
+                <div><a href="/auth/logout" class="logout-link">Log out</a></div>
+            </div>
+            {% endif %}
         </div>
     </header>
     <div class="container">

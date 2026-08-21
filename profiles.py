@@ -10,11 +10,11 @@ import logging
 import plotly.graph_objects as go
 import plotly.io as pio
 
-from litestar import Router, get
+from litestar import Request, Router, get
 from litestar.datastructures import State
 from litestar.response import Template
 
-from auth import require_login
+from auth import require_login, session_user_context
 from config import config
 from mongodb import MongoDBService
 
@@ -170,7 +170,7 @@ def create_single_profile_chart(profile: dict) -> str:
 
 
 @get("/profiles", guards=[require_login])
-async def profiles_list(state: State) -> Template:
+async def profiles_list(request: Request, state: State) -> Template:
     """
     Page displaying all profiling runs with stacked bar chart
     """
@@ -182,6 +182,7 @@ async def profiles_list(state: State) -> Template:
                 "error_type": "MongoDB Connection Failed",
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
+                **session_user_context(request),
             }
         )
 
@@ -196,7 +197,8 @@ async def profiles_list(state: State) -> Template:
             template_name="profiles.html",
             context={
                 "profiles": profiles,
-                "chart_html": chart_html
+                "chart_html": chart_html,
+                **session_user_context(request),
             }
         )
     except Exception as e:
@@ -207,13 +209,14 @@ async def profiles_list(state: State) -> Template:
                 "error_type": "MongoDB Error",
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
-                "error_message": str(e)
+                "error_message": str(e),
+                **session_user_context(request),
             }
         )
 
 
 @get("/profile/{profile_id:str}", guards=[require_login])
-async def profile_detail(state: State, profile_id: str) -> Template:
+async def profile_detail(request: Request, state: State, profile_id: str) -> Template:
     """
     Detailed view of a single profile with individual chart
     """
@@ -227,7 +230,8 @@ async def profile_detail(state: State, profile_id: str) -> Template:
                 "status_code": 404,
                 "error_title": "Profile Not Found",
                 "error_message": "The profile you're looking for doesn't exist.",
-                "request_path": f"/profile/{profile_id}"
+                "request_path": f"/profile/{profile_id}",
+                **session_user_context(request),
             },
             status_code=404
         )
@@ -239,7 +243,8 @@ async def profile_detail(state: State, profile_id: str) -> Template:
         template_name="profile_detail.html",
         context={
             "profile": profile,
-            "chart_html": chart_html
+            "chart_html": chart_html,
+            **session_user_context(request),
         }
     )
 

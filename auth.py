@@ -90,6 +90,7 @@ async def callback(
         "email": userinfo.get("email"),
         "name": userinfo.get("name"),
         "username": userinfo.get("preferred_username"),
+        "identity_provider": identity_provider,
     }
     request.session["authenticated_at"] = now
     request.session["last_seen"] = now
@@ -106,6 +107,16 @@ async def logout(request: Any) -> Redirect:
     """Clear the session."""
     request.session.clear()
     return Redirect("/")
+
+
+def session_user_context(request: Any) -> dict:
+    """Build the 'auth_user' context dict for templates from the session.
+
+    Returns an empty dict if there's no logged-in user, so it can be
+    unconditionally merged into any Template context.
+    """
+    user = request.session.get("user")
+    return {"auth_user": user}
 
 
 def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None:

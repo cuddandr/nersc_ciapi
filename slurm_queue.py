@@ -15,11 +15,11 @@ import jq
 import litestar.status_codes as status_code
 from authlib.integrations.requests_client import OAuth2Session
 from authlib.oauth2.rfc7523 import PrivateKeyJWT
-from litestar import Router, Response, get
+from litestar import Request, Router, Response, get
 from litestar.datastructures import State
 from litestar.response import Template
 
-from auth import require_login
+from auth import require_login, session_user_context
 from config import config
 from utils import read_file_content
 
@@ -137,7 +137,7 @@ async def get_queue_info(days: int = 1) -> Response:
 
 
 @get("/queue", guards=[require_login])
-async def display_queue(state: State, days: int = 1) -> Template:
+async def display_queue(request: Request, state: State, days: int = 1) -> Template:
     """
     Display Perlmutter job queue. Serves an initially empty webpage
     with loading animation. A JS script inside the HTML performs an
@@ -145,7 +145,7 @@ async def display_queue(state: State, days: int = 1) -> Template:
     """
     return Template(
         template_name="slurm_queue.html",
-        context={},
+        context=session_user_context(request),
     )
 
 
