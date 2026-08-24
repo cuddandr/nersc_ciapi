@@ -24,7 +24,7 @@
             padding: 20px 0;
             margin-bottom: 30px;
         }
-        h1 { color: #58a6ff; font-size: 28px; }
+        h1 { color: #58a6ff; font-size: 24px; white-space: nowrap; }
         h2 { color: #58a6ff; margin: 20px 0 10px; }
         .stats {
             display: grid;
@@ -127,7 +127,41 @@
         .user-info .user-idp { color: #58a6ff; font-family: 'Courier New', monospace; font-size: 11px; }
         .user-info a.logout-link { color: #f85149; }
         nav.main-nav {
-            /* Placeholder for an eventual nav bar */
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: auto;
+            margin-left: 30px;
+        }
+        nav.main-nav a {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            min-width: 90px;
+            color: #c9d1d9;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 6px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            cursor: pointer;
+        }
+        nav.main-nav a:focus-visible {
+            outline: 2px solid #58a6ff;
+            outline-offset: 2px;
+        }
+        nav.main-nav a:hover {
+            color: #58a6ff;
+            text-decoration: none;
+            background: #1c2128;
+            border-color: #58a6ff;
+        }
+        nav.main-nav a.active {
+            color: #58a6ff;
+            background: #1c2128;
+            border-color: #58a6ff;
         }
     </style>
 </head>
@@ -136,8 +170,11 @@
         <div class="container">
             <h1>🪝 GitHub Webhook Dashboard</h1>
             <nav class="main-nav">
-                {# eventual nav links go here #}
-            </nav>
+                <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Webhooks</a>
+                <a href="/queue" class="{% if request.url.path == '/queue' %}active{% endif %}">Queue</a>
+                <a href="/profiles" class="{% if request.url.path == '/profiles' %}active{% endif %}">Profiles</a>
+                <a href="/docs" class="{% if request.url.path == '/docs' %}active{% endif %}">API Docs</a>
+            </nav>  
             {% if auth_user %}
             <div class="user-info">
                 <div class="user-name">{{ auth_user.name or auth_user.username or 'Unknown user' }}</div>

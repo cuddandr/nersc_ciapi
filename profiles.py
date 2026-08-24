@@ -182,6 +182,7 @@ async def profiles_list(request: Request, state: State) -> Template:
                 "error_type": "MongoDB Connection Failed",
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
+                "request": request,
                 **session_user_context(request),
             }
         )
@@ -198,6 +199,7 @@ async def profiles_list(request: Request, state: State) -> Template:
             context={
                 "profiles": profiles,
                 "chart_html": chart_html,
+                "request": request,
                 **session_user_context(request),
             }
         )
@@ -210,6 +212,7 @@ async def profiles_list(request: Request, state: State) -> Template:
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
                 "error_message": str(e),
+                "request": request,
                 **session_user_context(request),
             }
         )
@@ -231,6 +234,7 @@ async def profile_detail(request: Request, state: State, profile_id: str) -> Tem
                 "error_title": "Profile Not Found",
                 "error_message": "The profile you're looking for doesn't exist.",
                 "request_path": f"/profile/{profile_id}",
+                "request": request,
                 **session_user_context(request),
             },
             status_code=404
@@ -244,6 +248,7 @@ async def profile_detail(request: Request, state: State, profile_id: str) -> Tem
         context={
             "profile": profile,
             "chart_html": chart_html,
+            "request": request,
             **session_user_context(request),
         }
     )

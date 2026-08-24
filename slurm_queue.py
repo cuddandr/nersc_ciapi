@@ -145,7 +145,10 @@ async def display_queue(request: Request, state: State, days: int = 1) -> Templa
     """
     return Template(
         template_name="slurm_queue.html",
-        context=session_user_context(request),
+        context={
+            "request": request,
+            **session_user_context(request),
+        }
     )
 
 

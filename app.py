@@ -252,6 +252,7 @@ async def index(request: Request, state: State, event_type: Optional[str] = None
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
                 "error_message": str(state.mongo_error),
+                "request": request,
                 **session_user_context(request),
             },
         )
@@ -270,6 +271,7 @@ async def index(request: Request, state: State, event_type: Optional[str] = None
                 "event_types": event_types,
                 "stats": stats,
                 "selected_event_type": event_type,
+                "request": request,
                 **session_user_context(request),
             },
         )
@@ -281,6 +283,7 @@ async def index(request: Request, state: State, event_type: Optional[str] = None
                 "mongodb_url": config.mongodb.url,
                 "mongodb_db": config.mongodb.db,
                 "error_message": str(e),
+                "request": request,
                 **session_user_context(request),
             },
         )
@@ -301,6 +304,7 @@ async def webhook_detail(request: Request, state: State, webhook_id: str) -> Tem
                 "error_title": "Webhook Not Found",
                 "error_message": "The webhook you're looking for doesn't exist.",
                 "request_path": f"/webhook/{webhook_id}",
+                "request": request,
                 **session_user_context(request),
             },
             status_code=404
@@ -309,8 +313,10 @@ async def webhook_detail(request: Request, state: State, webhook_id: str) -> Tem
     return Template(
         template_name="webhook_details.html",
         context={
+            "request": request,
             "webhook": webhook,
             "webhook_id": webhook_id,
+            **session_user_context(request),
         },
     )
 
@@ -358,6 +364,7 @@ def http_exception_handler(request: Request, exc: Exception) -> Response:
                 "error_title": error_title,
                 "error_message": error_message,
                 "request_path": request.url.path,
+                "request": request,
                 **session_user_context(request),
             },
             status_code=resp_status_code,
