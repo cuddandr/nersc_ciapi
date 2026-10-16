@@ -28,7 +28,7 @@ from jinja2 import Environment, PackageLoader
 
 from auth import auth_router, require_login, session_user_context
 from profiles import profiles_router
-from config import bootstrap, Config
+from config import config
 from mongodb import MongoDBService, on_startup, on_shutdown
 from slurm_queue import queue_router
 from utils import read_file_content
@@ -96,9 +96,9 @@ def check_admission(data: dict, admission_conf: dict) -> tuple[bool, Optional[di
     return return_val
 
 
-def submit_job(data_dict: dict, nersc_dict: dict) -> int:
+def submit_job(data_dict: dict, nersc_dict: dict, admission_conf: dict) -> int:
     """Run the job."""
-    cluster = config.hpc.admission_conf["clusters"][config.hpc.cluster]
+    cluster = admission_conf["clusters"][config.hpc.cluster]
     logging.info(f"Repository: {data_dict['repository']['full_name']}")
     logging.info(f"Branch: {data_dict['workflow_job']['head_branch']}")
     logging.info(f"Sender: {data_dict['sender']['login']}")
@@ -163,8 +163,9 @@ async def receive_webhook(
     # X-Forwarded-For can be a comma-separated list; the first entry is the original client
     client_host = client_host.split(",")[0].strip()
 
+    admission_conf = state.admission_conf
     if config.webhook.verify_ip and not is_ip_authorized(
-        client_host, config.hpc.admission_conf["ip_range"]
+        client_host, admission_conf["ip_range"]
     ):
         logging.info(f"Invalid client IP: {client_host}")
         return Response(
@@ -200,7 +201,7 @@ async def receive_webhook(
     )
 
     logging.info("Checking job admission.")
-    permission, nersc_config = check_admission(payload, config.hpc.admission_conf)
+    permission, nersc_config = check_admission(payload, admission_conf)
     if not permission:
         logging.info("Job not admitted.")
         return Response(
@@ -208,7 +209,7 @@ async def receive_webhook(
         )
     logging.info("Job admitted.")
     nersc_config["_id"] = webhook_id
-    return_code = submit_job(payload, nersc_config)
+    return_code = submit_job(payload, nersc_config, admission_conf)
 
     return Response(
         content={"message": "Webhook received", "event_type": event_type, "webhook_id": webhook_id},
@@ -387,8 +388,8 @@ LITESTAR_LOG_CONF = LoggingConfig(
 # measure: the browser stops sending the cookie at the same point the server
 # would reject it anyway.
 SESSION_CONFIG = CookieBackendConfig(
-    secret=bootstrap.session_secret,
-    max_age=bootstrap.session_max_age,
+    secret=config.session.secret,
+    max_age=config.session.max_age_seconds,
 )
 
 app = Litestar(

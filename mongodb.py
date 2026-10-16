@@ -1,9 +1,14 @@
 """
 MongoDB integration.
 
-Owns the MongoDBService data-access layer (webhooks + nsys profiles) and
-the connection lifecycle hooks (on_startup/on_shutdown) that app.py wires
-into the Litestar app.
+Owns the MongoDBService data-access layer (webhooks + nsys profiles + the
+admission policy) and the connection lifecycle hooks (on_startup/on_shutdown)
+that app.py wires into the Litestar app.
+
+The admission policy is the one piece of configuration stored in MongoDB:
+it is mutable at runtime (edited via the web app) and seeded from the file
+pointed to by ADMISSION_CONF_FILE on first run. All other configuration
+comes from the environment (see config.py).
 """
 
 import logging
@@ -11,24 +16,40 @@ from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import yaml
 from bson import ObjectId
 from bson.codec_options import CodecOptions
 from litestar import Litestar
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
-from config import bootstrap, Config
+from config import config, ConfigError
 
 
 class MongoDBService:
     """MongoDB service for webhook storage"""
 
-    def __init__(self, db: AsyncDatabase, config: Config):
+    def __init__(self, db: AsyncDatabase):
         options = CodecOptions(tz_aware=True, tzinfo=ZoneInfo(config.app.tzinfo))
         self.db = db
-        self.config = config
         self.collection = db.get_collection("webhooks", options)
         self.profiles_collection = db.get_collection("nsys_profiles", options)
+        self.admission_collection = db.get_collection("admission_config", options)
+
+    async def load_admission_conf(self) -> dict:
+        """Load the admission policy from MongoDB (returns {} if absent)."""
+        doc = await self.admission_collection.find_one({"_id": "policy"})
+        if not doc:
+            return {}
+        return doc.get("data", {})
+
+    async def save_admission_conf(self, admission_conf: dict) -> None:
+        """Persist the admission policy to MongoDB (upsert)."""
+        await self.admission_collection.update_one(
+            {"_id": "policy"},
+            {"$set": {"data": admission_conf}},
+            upsert=True,
+        )
 
     async def store_webhook(
         self, event_type: str, payload: dict[str, Any], headers: dict[str, str]
@@ -107,47 +128,69 @@ class MongoDBService:
             return None
 
 
+def _validate_admission_conf(admission_conf: dict) -> None:
+    """Validate the admission policy structure against the configured cluster."""
+    if not admission_conf:
+        logging.warning(
+            "Admission config is empty; all webhooks will be rejected "
+            "(or, if verify_ip is set, IP checks will fail)."
+        )
+        return
+    if "clusters" not in admission_conf:
+        raise ConfigError("Admission config is missing the required 'clusters' key.")
+    if config.hpc.cluster not in admission_conf["clusters"]:
+        raise ConfigError(
+            f"Admission config has no entry under 'clusters' for "
+            f"HPC_CLUSTER={config.hpc.cluster!r}."
+        )
+
+
 async def on_startup(app: Litestar) -> None:
-    """Initialize MongoDB connection and load configuration on startup"""
+    """Initialize MongoDB connection and load the admission policy."""
     logging.info("Starting GitHub Webhook Receiver...")
-    logging.info(f"MongoDB: {bootstrap.mongodb_url}/{bootstrap.mongodb_db}")
-    logging.info(f"Mongo user: {bootstrap.mongodb_user}")
+    logging.info(f"MongoDB: {config.mongodb.url}/{config.mongodb.db}")
+    logging.info(f"Mongo user: {config.mongodb.user}")
+    logging.info(
+        f"Webhook Secret: {'Configured' if config.webhook.secret else 'Not configured (signatures will not be verified)'}"
+    )
 
     client = AsyncMongoClient(
-        bootstrap.mongodb_url,
-        username=bootstrap.mongodb_user,
-        password=bootstrap.mongodb_password,
+        config.mongodb.url,
+        username=config.mongodb.user,
+        password=config.mongodb.password,
         serverSelectionTimeoutMS=15000,
     )
     try:
         await client.admin.command("ping")
-        db = client[bootstrap.mongodb_db]
+        db = client[config.mongodb.db]
+        app.state.mongo_service = MongoDBService(db)
 
-        # Load configuration from MongoDB, seed if not present
-        conf_collection = db.get_collection("configurations")
-        conf_doc = await conf_collection.find_one({"_id": "app_config"})
-
-        if conf_doc:
-            logging.info("Loading configuration from MongoDB.")
-            # Remove MongoDB internal _id
-            config_data = {k: v for k, v in conf_doc.items() if k != "_id"}
-            app_config = Config.from_dict(config_data)
+        # Load the admission policy from MongoDB; seed from the file on
+        # first run. The DB copy is authoritative once it exists.
+        mongo_service: MongoDBService = app.state.mongo_service
+        admission_conf = await mongo_service.load_admission_conf()
+        if admission_conf:
+            logging.info("Loaded admission config from MongoDB.")
+        elif config.hpc.admission_conf_file:
+            logging.info(
+                "No admission config in MongoDB. Seeding from "
+                f"{config.hpc.admission_conf_file}."
+            )
+            with open(config.hpc.admission_conf_file, "r") as f:
+                admission_conf = yaml.safe_load(f) or {}
+            if admission_conf:
+                await mongo_service.save_admission_conf(admission_conf)
+                logging.info("Seeded admission config into MongoDB.")
         else:
-            logging.info("No configuration found in MongoDB. Seeding from environment/files.")
-            app_config = Config.from_env()
-            await conf_collection.insert_one({
-                "_id": "app_config",
-                **app_config.to_dict()
-            })
+            logging.warning(
+                "No admission config in MongoDB and ADMISSION_CONF_FILE is "
+                "not set; admission checks are disabled."
+            )
 
-        app_config.validate()
-        app.state.config = app_config
-        app.state.mongo_service = MongoDBService(db, app_config)
+        _validate_admission_conf(admission_conf)
+        app.state.admission_conf = admission_conf
 
-        logging.info(f"Connected to MongoDB: {bootstrap.mongodb_url}/{bootstrap.mongodb_db}")
-        logging.info(
-            f"Webhook Secret: {'Configured' if app_config.webhook.secret else 'Not configured'}"
-        )
+        logging.info(f"Connected to MongoDB: {config.mongodb.url}/{config.mongodb.db}")
     except Exception as e:
         app.state.mongo_service = None
         app.state.mongo_error = e

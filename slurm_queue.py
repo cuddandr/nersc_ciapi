@@ -20,11 +20,11 @@ from litestar.datastructures import State
 from litestar.response import Template
 
 from auth import require_login, session_user_context
-from config import Config
+from config import config
 from utils import read_file_content
 
 
-def filter_sacct(data: dict, config: Config) -> dict:
+def filter_sacct(data: dict) -> dict:
     jq_filter = """
     .jobs[] | {
     jobid: .job_id,
@@ -72,8 +72,8 @@ async def get_queue_info(request: Request, state: State, days: int = 1) -> Respo
     wait_time = 15  # seconds to wait in between polling the SF API task
     num_attempts = 4  # total tries to get the data before giving up
 
-    config: Config = state.config
-    cluster = config.hpc.admission_conf["clusters"][config.hpc.cluster]
+    admission_conf = state.admission_conf
+    cluster = admission_conf["clusters"][config.hpc.cluster]
     client_id = read_file_content(cluster["client_id"]).strip()
     private_key = read_file_content(cluster["private_key"])
 
@@ -126,7 +126,7 @@ async def get_queue_info(request: Request, state: State, days: int = 1) -> Respo
             else:
                 time.sleep(wait_time)
 
-        filtered = filter_sacct(data, config)
+        filtered = filter_sacct(data)
         return Response(
             content=filtered,
             status_code=http_status_code,

@@ -15,7 +15,7 @@ from litestar.datastructures import State
 from litestar.response import Template
 
 from auth import require_login, session_user_context
-from config import Config
+from config import config
 from mongodb import MongoDBService
 
 
@@ -174,7 +174,6 @@ async def profiles_list(request: Request, state: State) -> Template:
     """
     Page displaying all profiling runs with stacked bar chart
     """
-    config: Config = state.config
     # Check if MongoDB is connected
     if not hasattr(state, 'mongo_service') or state.mongo_service is None:
         return Template(
