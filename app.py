@@ -28,7 +28,7 @@ from jinja2 import Environment, PackageLoader
 
 from auth import auth_router, require_login, session_user_context
 from profiles import profiles_router
-from config import config
+from config import bootstrap, Config
 from mongodb import MongoDBService, on_startup, on_shutdown
 from slurm_queue import queue_router
 from utils import read_file_content
@@ -387,8 +387,8 @@ LITESTAR_LOG_CONF = LoggingConfig(
 # measure: the browser stops sending the cookie at the same point the server
 # would reject it anyway.
 SESSION_CONFIG = CookieBackendConfig(
-    secret=config.session.secret,
-    max_age=config.session.max_age_seconds,
+    secret=bootstrap.session_secret,
+    max_age=bootstrap.session_max_age,
 )
 
 app = Litestar(

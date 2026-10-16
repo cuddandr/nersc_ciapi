@@ -6,7 +6,7 @@ startup, validates what it can, and exposes a single frozen, typed
 `Config` instance (`config`) for the rest of the application to import.
 
 Usage:
-    from config import config
+    from config import Config
 
     print(config.mongodb.url)
     print(config.globus.client_id)  # secret file already read & cached
@@ -80,6 +80,28 @@ def _getenv_int(name: str, default: int) -> int:
 # Sub-configs, grouped by concern
 # --------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class BootstrapConfig:
+    """Configuration needed before the app can connect to MongoDB."""
+    mongodb_url: str
+    mongodb_db: str
+    mongodb_user: str
+    mongodb_password: str
+    session_secret: bytes
+    session_max_age: int
+
+    @classmethod
+    def from_env(cls) -> "BootstrapConfig":
+        session_secret_file = os.getenv("SESSION_SECRET_FILE", "")
+        return cls(
+            mongodb_url=os.getenv("MONGODB_URL", "mongodb://localhost:27017"),
+            mongodb_db=os.getenv("MONGODB_DB", "github_webhooks"),
+            mongodb_user=os.getenv("MONGODB_USER", ""),
+            mongodb_password=os.getenv("MONGODB_PASS", ""),
+            session_secret=_read_secret_file(session_secret_file).encode("utf-8"),
+            session_max_age=_getenv_int("MAX_SESSION_AGE_SECONDS", 8 * 60 * 60),
+        )
+
 
 @dataclass(frozen=True)
 class MongoConfig:
@@ -152,6 +174,40 @@ class Config:
     webhook: WebhookConfig
     hpc: HPCConfig
     app: AppConfig
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Config":
+        """Create a Config instance from a dictionary (e.g. from MongoDB)."""
+        return cls(
+            mongodb=MongoConfig(**data["mongodb"]),
+            globus=GlobusConfig(
+                client_id_file=data["globus"]["client_id_file"],
+                client_secret_file=data["globus"]["client_secret_file"],
+                redirect_uri=data["globus"]["redirect_uri"],
+                auth_base=data["globus"]["auth_base"],
+                nersc_identity_provider_id=data["globus"]["nersc_identity_provider_id"],
+                client_id=_read_secret_file(data["globus"]["client_id_file"]),
+                client_secret=_read_secret_file(data["globus"]["client_secret_file"]),
+            ),
+            session=SessionConfig(
+                secret_file=data["session"]["secret_file"],
+                secret=_read_secret_file(data["session"]["secret_file"]).encode("utf-8"),
+                max_age_seconds=data["session"]["max_age_seconds"],
+                idle_timeout_seconds=data["session"]["idle_timeout_seconds"],
+            ),
+            webhook=WebhookConfig(
+                secret_file=data["webhook"]["secret_file"],
+                secret=_read_secret_file(data["webhook"]["secret_file"]),
+                verify_ip=data["webhook"]["verify_ip"],
+            ),
+            hpc=HPCConfig(
+                cluster=data["hpc"]["cluster"],
+                token_url=data["hpc"]["token_url"],
+                admission_conf_file=data["hpc"]["admission_conf_file"],
+                admission_conf=_read_yaml_file(data["hpc"]["admission_conf_file"]),
+            ),
+            app=AppConfig(**data["app"]),
+        )
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -273,13 +329,41 @@ class Config:
             message = "Invalid configuration:\n" + "\n".join(f"  - {e}" for e in errors)
             raise ConfigError(message)
 
+    def to_dict(self) -> dict:
+        """Convert Config to a dictionary for storage in MongoDB."""
+        return {
+            "mongodb": {
+                "url": self.mongodb.url,
+                "db": self.mongodb.db,
+                "user": self.mongodb.user,
+                "password": self.mongodb.password,
+            },
+            "globus": {
+                "client_id_file": self.globus.client_id_file,
+                "client_secret_file": self.globus.client_secret_file,
+                "redirect_uri": self.globus.redirect_uri,
+                "auth_base": self.globus.auth_base,
+                "nersc_identity_provider_id": self.globus.nersc_identity_provider_id,
+            },
+            "session": {
+                "secret_file": self.session.secret_file,
+                "max_age_seconds": self.session.max_age_seconds,
+                "idle_timeout_seconds": self.session.idle_timeout_seconds,
+            },
+            "webhook": {
+                "secret_file": self.webhook.secret_file,
+                "verify_ip": self.webhook.verify_ip,
+            },
+            "hpc": {
+                "cluster": self.hpc.cluster,
+                "token_url": self.hpc.token_url,
+                "admission_conf_file": self.hpc.admission_conf_file,
+            },
+            "app": {
+                "tzinfo": self.app.tzinfo,
+            },
+        }
 
-@lru_cache(maxsize=1)
-def get_config() -> Config:
-    """Return the process-wide Config singleton, building it on first use."""
-    return Config.from_env()
 
-
-# Eagerly construct the singleton at import time so that misconfiguration
-# fails fast at startup instead of on the first request that needs it.
-config: Config = get_config()
+# Bootstrap configuration for startup
+bootstrap = BootstrapConfig.from_env()

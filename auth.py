@@ -24,7 +24,7 @@ from litestar.params import Parameter
 from litestar.response import Redirect
 from litestar.datastructures import State
 
-from config import config
+from config import Config
 
 
 @get("/auth/login")
@@ -34,6 +34,7 @@ async def login(request: Any, next: str = "/") -> Redirect:
     request.session["oauth_state"] = state_token
     request.session["post_login_redirect"] = next
 
+    config: Config = request.app.state.config
     params = {
         "client_id": config.globus.client_id,
         "response_type": "code",
@@ -58,6 +59,7 @@ async def callback(
         raise NotAuthorizedException("Invalid login state, please try again.")
 
     async with httpx.AsyncClient() as client:
+        config: Config = request.app.state.config
         token_resp = await client.post(
             f"{config.globus.auth_base}/v2/oauth2/token",
             data={
@@ -78,6 +80,7 @@ async def callback(
         userinfo = userinfo_resp.json()
 
     identity_provider = userinfo.get("identity_provider")
+    config: Config = request.app.state.config
     if config.globus.nersc_identity_provider_id and identity_provider != config.globus.nersc_identity_provider_id:
         logging.warning(
             f"Rejected login from identity provider {identity_provider}: not NERSC."
@@ -129,6 +132,7 @@ def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None:
     On success, refreshes the idle clock.
     """
     session = connection.session
+    config: Config = connection.app.state.config
     user = session.get("user")
     authenticated_at = session.get("authenticated_at")
     last_seen = session.get("last_seen")

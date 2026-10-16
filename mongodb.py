@@ -17,15 +17,16 @@ from litestar import Litestar
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
-from config import config
+from config import bootstrap, Config
 
 
 class MongoDBService:
     """MongoDB service for webhook storage"""
 
-    def __init__(self, db: AsyncDatabase):
+    def __init__(self, db: AsyncDatabase, config: Config):
         options = CodecOptions(tz_aware=True, tzinfo=ZoneInfo(config.app.tzinfo))
         self.db = db
+        self.config = config
         self.collection = db.get_collection("webhooks", options)
         self.profiles_collection = db.get_collection("nsys_profiles", options)
 
@@ -37,7 +38,7 @@ class MongoDBService:
             "event_type": event_type,
             "payload": payload,
             "headers": headers,
-            "received_at": datetime.now(ZoneInfo(config.app.tzinfo)),
+            "received_at": datetime.now(ZoneInfo(self.config.app.tzinfo)),
         }
         result = await self.collection.insert_one(document)
         return str(result.inserted_id)
@@ -107,28 +108,50 @@ class MongoDBService:
 
 
 async def on_startup(app: Litestar) -> None:
-    """Initialize MongoDB connection on startup"""
+    """Initialize MongoDB connection and load configuration on startup"""
     logging.info("Starting GitHub Webhook Receiver...")
-    logging.info(f"MongoDB: {config.mongodb.url}/{config.mongodb.db}")
-    logging.info(f"Mongo user: {config.mongodb.user}")
-    logging.info(
-        f"Webhook Secret: {'Configured' if config.webhook.secret else 'Not configured (signatures will not be verified)'}"
-    )
+    logging.info(f"MongoDB: {bootstrap.mongodb_url}/{bootstrap.mongodb_db}")
+    logging.info(f"Mongo user: {bootstrap.mongodb_user}")
+
     client = AsyncMongoClient(
-        config.mongodb.url,
-        username=config.mongodb.user,
-        password=config.mongodb.password,
+        bootstrap.mongodb_url,
+        username=bootstrap.mongodb_user,
+        password=bootstrap.mongodb_password,
         serverSelectionTimeoutMS=15000,
     )
     try:
         await client.admin.command("ping")
-        db = client[config.mongodb.db]
-        app.state.mongo_service = MongoDBService(db)
-        logging.info(f"Connected to MongoDB: {config.mongodb.url}/{config.mongodb.db}")
+        db = client[bootstrap.mongodb_db]
+
+        # Load configuration from MongoDB, seed if not present
+        conf_collection = db.get_collection("configurations")
+        conf_doc = await conf_collection.find_one({"_id": "app_config"})
+
+        if conf_doc:
+            logging.info("Loading configuration from MongoDB.")
+            # Remove MongoDB internal _id
+            config_data = {k: v for k, v in conf_doc.items() if k != "_id"}
+            app_config = Config.from_dict(config_data)
+        else:
+            logging.info("No configuration found in MongoDB. Seeding from environment/files.")
+            app_config = Config.from_env()
+            await conf_collection.insert_one({
+                "_id": "app_config",
+                **app_config.to_dict()
+            })
+
+        app_config.validate()
+        app.state.config = app_config
+        app.state.mongo_service = MongoDBService(db, app_config)
+
+        logging.info(f"Connected to MongoDB: {bootstrap.mongodb_url}/{bootstrap.mongodb_db}")
+        logging.info(
+            f"Webhook Secret: {'Configured' if app_config.webhook.secret else 'Not configured'}"
+        )
     except Exception as e:
         app.state.mongo_service = None
         app.state.mongo_error = e
-        logging.error(f"Error pinging MongoDB server: {e}")
+        logging.error(f"Error during startup: {e}")
 
 
 async def on_shutdown(app: Litestar) -> None:
