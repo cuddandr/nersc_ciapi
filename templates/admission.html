@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Admission Config{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h2>⚙️ Admission Config</h2>
+    <a href="/" class="back-link">← Back to Dashboard</a>
+</div>
+
+<p style="color: #8b949e; margin-bottom: 20px;">
+    The admission policy below is stored in MongoDB and applied immediately when saved.
+    Clusters define credentials and permitted users; repositories map GitHub repos and
+    branches to admitted jobs.
+</p>
+
+<div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+    <button id="save-btn" onclick="saveConfig()">💾 Save &amp; Apply</button>
+    <button id="reload-btn" onclick="reloadConfig()" style="background: #21262d; border-color: #30363d;">🔄 Reload from DB</button>
+    <span id="status" style="margin-left: 10px; font-size: 14px;"></span>
+</div>
+
+<textarea id="yaml-editor" spellcheck="false" style="
+    width: 100%;
+    min-height: 500px;
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 15px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    resize: vertical;
+"></textarea>
+
+<script>
+const editor = document.getElementById('yaml-editor');
+const statusEl = document.getElementById('status');
+const saveBtn = document.getElementById('save-btn');
+const reloadBtn = document.getElementById('reload-btn');
+
+function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.style.color = isError ? '#f85149' : '#3fb950';
+    if (msg) {
+        setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ''; }, 5000);
+    }
+}
+
+function setBusy(busy) {
+    saveBtn.disabled = busy;
+    reloadBtn.disabled = busy;
+}
+
+async function loadConfig() {
+    try {
+        const resp = await fetch('/admission-data');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        editor.value = data.yaml;
+    } catch (e) {
+        setStatus(`Failed to load config: ${e.message}`, true);
+    }
+}
+
+async function saveConfig() {
+    setBusy(true);
+    setStatus('Saving…', false);
+    try {
+        const resp = await fetch('/admission/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({yaml: editor.value}),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            setStatus(`Save failed: ${data.message || data.detail || resp.status}`, true);
+        } else {
+            setStatus(data.message, false);
+        }
+    } catch (e) {
+        setStatus(`Save failed: ${e.message}`, true);
+    } finally {
+        setBusy(false);
+    }
+}
+
+async function reloadConfig() {
+    setBusy(true);
+    setStatus('Reloading…', false);
+    try {
+        const resp = await fetch('/admission/reload', {method: 'POST'});
+        const data = await resp.json();
+        if (!resp.ok) {
+            setStatus(`Reload failed: ${data.message || data.detail || resp.status}`, true);
+        } else {
+            setStatus(data.message, false);
+            await loadConfig();
+        }
+    } catch (e) {
+        setStatus(`Reload failed: ${e.message}`, true);
+    } finally {
+        setBusy(false);
+    }
+}
+
+loadConfig();
+</script>
+{% endblock %}

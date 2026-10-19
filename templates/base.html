@@ -173,8 +173,9 @@
                 <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Webhooks</a>
                 <a href="/queue" class="{% if request.url.path == '/queue' %}active{% endif %}">Queue</a>
                 <a href="/profiles" class="{% if request.url.path == '/profiles' %}active{% endif %}">Profiles</a>
+                <a href="/admission" class="{% if request.url.path == '/admission' %}active{% endif %}">Admission</a>
                 <a href="/docs" class="{% if request.url.path == '/docs' %}active{% endif %}">API Docs</a>
-            </nav>  
+            </nav>
             {% if auth_user %}
             <div class="user-info">
                 <div class="user-name">{{ auth_user.name or auth_user.username or 'Unknown user' }}</div>

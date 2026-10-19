@@ -26,12 +26,12 @@ import litestar.status_codes as status_code
 
 from jinja2 import Environment, PackageLoader
 
+from admission import admission_router
 from auth import auth_router, require_login, session_user_context
 from profiles import profiles_router
 from config import config
 from mongodb import MongoDBService, on_startup, on_shutdown
 from slurm_queue import queue_router
-from utils import read_file_content
 
 
 def is_ip_authorized(ip: str, cidr_ranges: list[str]) -> bool:
@@ -402,6 +402,7 @@ app = Litestar(
         auth_router,  # /auth/login, /auth/callback, /auth/logout
         profiles_router,  # /profiles, /profile/{id}
         queue_router,  # /queue, /queue-data
+        admission_router,  # /admission page + /admission-data, /admission/save, /admission/reload
     ],
     on_startup=[on_startup],
     on_shutdown=[on_shutdown],
