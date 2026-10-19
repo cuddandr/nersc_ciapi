@@ -123,6 +123,20 @@ class AppConfig:
     tzinfo: str
 
 
+@dataclass(frozen=True)
+class LDAPConfig:
+    """NERSC LDAP unix-group settings used by auth.py guards (via ldap_auth.py)."""
+
+    url: str
+    search_base: str
+    user_group: str
+    admin_group: str
+    connect_timeout_seconds: float
+    read_timeout_seconds: float
+    cache_ttl_seconds: float
+    ca_cert_file: str
+
+
 # --------------------------------------------------------------------------
 # Top-level config
 # --------------------------------------------------------------------------
@@ -135,6 +149,7 @@ class Config:
     session: SessionConfig
     webhook: WebhookConfig
     hpc: HPCConfig
+    ldap: LDAPConfig
     app: AppConfig
 
 
@@ -181,6 +196,22 @@ class Config:
             admission_conf_file=os.getenv("ADMISSION_CONF_FILE", "configs/admission.yaml"),
         )
 
+        ldap = LDAPConfig(
+            url=os.getenv("LDAP_URL", "ldaps://ldap.nersc.gov"),
+            search_base=os.getenv(
+                "LDAP_SEARCH_BASE",
+                "ou=PosixGroup,ou=perlmutter,ou=Host,o=ldapsvc,dc=nersc,dc=gov",
+            ),
+            user_group=os.getenv("LDAP_USER_GROUP", ""),
+            admin_group=os.getenv("LDAP_ADMIN_GROUP", ""),
+            connect_timeout_seconds=float(
+                os.getenv("LDAP_CONNECT_TIMEOUT_SECONDS", "5")
+            ),
+            read_timeout_seconds=float(os.getenv("LDAP_READ_TIMEOUT_SECONDS", "5")),
+            cache_ttl_seconds=float(os.getenv("LDAP_CACHE_TTL_SECONDS", "60")),
+            ca_cert_file=os.getenv("LDAP_CA_CERT_FILE", ""),
+        )
+
         app = AppConfig(
             tzinfo=os.getenv("TZINFO", "US/Pacific"),
         )
@@ -191,6 +222,7 @@ class Config:
             session=session,
             webhook=webhook,
             hpc=hpc,
+            ldap=ldap,
             app=app,
         )
         config.validate()
@@ -243,6 +275,20 @@ class Config:
             logging.warning(
                 "NERSC_IDENTITY_PROVIDER_ID is not set; any Globus identity "
                 "will be accepted for login."
+            )
+
+        # An unset group name must be a startup error rather than an open
+        # gate: every guard below fails closed on LDAP errors, but an empty
+        # group string would make the membership check meaningless.
+        if not self.ldap.user_group:
+            errors.append(
+                "LDAP_USER_GROUP is not set; Globus-authenticated paths "
+                "would have no unix-group gate."
+            )
+        if not self.ldap.admin_group:
+            errors.append(
+                "LDAP_ADMIN_GROUP is not set; the admission configuration "
+                "endpoints would have no admin unix-group gate."
             )
 
         if errors:

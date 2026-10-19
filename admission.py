@@ -16,12 +16,12 @@ from litestar.datastructures import State
 from litestar.exceptions import HTTPException
 from litestar.response import Template
 
-from auth import require_login, session_user_context
+from auth import require_login, require_ldap_group, session_user_context
 from config import config, ConfigError
 from mongodb import MongoDBService, _validate_admission_conf
 
 
-@get("/admission", guards=[require_login])
+@get("/admission", guards=[require_login, require_ldap_group(config.ldap.admin_group)])
 async def admission_page(request: Request, state: State) -> Template:
     """
     Page displaying and editing the admission policy.
@@ -51,7 +51,7 @@ async def admission_page(request: Request, state: State) -> Template:
     )
 
 
-@get("/admission-data", guards=[require_login])
+@get("/admission-data", guards=[require_login, require_ldap_group(config.ldap.admin_group)])
 async def get_admission_data(state: State) -> dict[str, Any]:
     """Return the current admission policy as YAML text for the editor."""
     mongo_service: MongoDBService = state.mongo_service
@@ -59,7 +59,7 @@ async def get_admission_data(state: State) -> dict[str, Any]:
     return {"yaml": yaml.safe_dump(admission_conf, sort_keys=False)}
 
 
-@post("/admission/save", guards=[require_login])
+@post("/admission/save", guards=[require_login, require_ldap_group(config.ldap.admin_group)])
 async def save_admission_data(request: Request, state: State) -> dict[str, Any]:
     """
     Validate the submitted YAML, persist it to MongoDB, and update the
@@ -89,7 +89,7 @@ async def save_admission_data(request: Request, state: State) -> dict[str, Any]:
     return {"status": "ok", "message": "Admission config saved and applied."}
 
 
-@post("/admission/reload", guards=[require_login])
+@post("/admission/reload", guards=[require_login, require_ldap_group(config.ldap.admin_group)])
 async def reload_admission_data(state: State) -> dict[str, Any]:
     """
     Re-read the admission policy from MongoDB into app.state, discarding any

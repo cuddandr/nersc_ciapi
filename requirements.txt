@@ -4,4 +4,5 @@ pymongo
 requests
 jq
 plotly
+ldap3
 PyYAML

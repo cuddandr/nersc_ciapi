@@ -2,6 +2,12 @@
 Globus Auth (OIDC) integration for gating the dashboard pages behind a
 NERSC login, while leaving the GitHub webhook POST endpoint untouched.
 
+After Globus authentication, every guarded route additionally requires
+membership in the NERSC unix group config.ldap.user_group; the admission
+configuration routes (admission.py) stack a second guard requiring
+config.ldap.admin_group. Membership is checked live (with a short in-process
+LDAP cache), so group removals take effect without touching the session.
+
 Session policy (see config.SessionConfig):
 - max_age_seconds: hard cap on how long a session is valid, regardless of activity.
 - idle_timeout_seconds: session is invalidated if there's been no authenticated
@@ -15,16 +21,98 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import httpx
+from anyio import to_thread
 
 from litestar import Router, get
 from litestar.connection import ASGIConnection
-from litestar.exceptions import NotAuthorizedException
+from litestar.exceptions import NotAuthorizedException, ServiceUnavailableException
 from litestar.handlers.base import BaseRouteHandler
 from litestar.params import Parameter
 from litestar.response import Redirect
 from litestar.datastructures import State
 
 from config import config
+from ldap_auth import LDAPAuthorizer, LDAPAuthorizationError
+
+
+# Process-wide authorizer; reads LDAPSettings from the environment/config once.
+_ldap_authorizer = LDAPAuthorizer()
+
+
+async def _user_in_ldap_group(connection: ASGIConnection, group: str) -> None:
+    """
+    Check that the logged-in session user is a member of `group`. Raises
+    NotAuthorizedException if not, ServiceUnavailableException if LDAP itself
+    is unreachable (fail closed, but distinguishable from "not a member").
+
+    Runs the blocking LDAP lookup in a worker thread so a cache miss (a real
+    network round trip) doesn't stall the event loop.
+    """
+    user = connection.session.get("user") or {}
+    username = user.get("username")
+    if not username:
+        # Should be unreachable behind require_login, which guarantees a user.
+        raise NotAuthorizedException("No username associated with this session")
+
+    try:
+        groups = await to_thread.run_sync(_ldap_authorizer.groups_for_user, username)
+    except LDAPAuthorizationError as exc:
+        logging.error(f"LDAP group lookup failed for {username}: {exc}")
+        raise ServiceUnavailableException(
+            "Authorization service unavailable, please try again shortly."
+        )
+
+    if group not in groups:
+        logging.warning(
+            f"Denied {username}: not a member of unix group {group!r}."
+        )
+        raise NotAuthorizedException(
+            "Your account is not authorized to access this resource."
+        )
+
+
+def require_ldap_group(group: str):
+    """Build a Litestar guard requiring membership in the given unix group."""
+
+    async def guard(connection: ASGIConnection, _: BaseRouteHandler) -> None:
+        await _user_in_ldap_group(connection, group)
+
+    return guard
+
+
+
+
+async def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None:
+    """
+    Guard for route handlers. Enforces:
+    - a logged-in user is present in the session
+    - the session hasn't exceeded config.session.max_age_seconds since login
+    - the session hasn't been idle longer than config.session.idle_timeout_seconds
+    - the user is a member of the required NERSC unix group (config.ldap.user_group)
+
+    On success, refreshes the idle clock.
+    """
+    session = connection.session
+    user = session.get("user")
+    authenticated_at = session.get("authenticated_at")
+    last_seen = session.get("last_seen")
+
+    if not user or authenticated_at is None or last_seen is None:
+        raise NotAuthorizedException("Login required")
+
+    now = time.time()
+
+    if now - authenticated_at > config.session.max_age_seconds:
+        session.clear()
+        raise NotAuthorizedException("Session expired, please log in again")
+
+    if now - last_seen > config.session.idle_timeout_seconds:
+        session.clear()
+        raise NotAuthorizedException("Session expired due to inactivity, please log in again")
+
+    session["last_seen"] = now
+
+    await _user_in_ldap_group(connection, config.ldap.user_group)
 
 
 @get("/auth/login")
@@ -110,43 +198,29 @@ async def logout(request: Any) -> Redirect:
 
 
 def session_user_context(request: Any) -> dict:
-    """Build the 'auth_user' context dict for templates from the session.
+    """Build the template context for the logged-in user.
 
     Returns an empty dict if there's no logged-in user, so it can be
     unconditionally merged into any Template context.
+
+    `is_admin` is a live LDAP admin-group membership check (backed by the
+    short in-process cache), NOT a session attribute — group grants/revocations
+    take effect within LDAP_CACHE_TTL_SECONDS without re-login. It is UI
+    hint only; actual authorization is enforced by the guards.
     """
     user = request.session.get("user")
-    return {"auth_user": user}
+    if not user or not user.get("username"):
+        return {"auth_user": None, "is_admin": False}
+    try:
+        groups = _ldap_authorizer.groups_for_user(user["username"])
+    except LDAPAuthorizationError:
+        logging.warning(
+            f"LDAP lookup failed while building UI context for "
+            f"{user['username']}; rendering as non-admin."
+        )
+        return {"auth_user": user, "is_admin": False}
+    return {"auth_user": user, "is_admin": config.ldap.admin_group in groups}
 
-
-def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None:
-    """
-    Guard for route handlers. Enforces:
-    - a logged-in user is present in the session
-    - the session hasn't exceeded config.session.max_age_seconds since login
-    - the session hasn't been idle longer than config.session.idle_timeout_seconds
-
-    On success, refreshes the idle clock.
-    """
-    session = connection.session
-    user = session.get("user")
-    authenticated_at = session.get("authenticated_at")
-    last_seen = session.get("last_seen")
-
-    if not user or authenticated_at is None or last_seen is None:
-        raise NotAuthorizedException("Login required")
-
-    now = time.time()
-
-    if now - authenticated_at > config.session.max_age_seconds:
-        session.clear()
-        raise NotAuthorizedException("Session expired, please log in again")
-
-    if now - last_seen > config.session.idle_timeout_seconds:
-        session.clear()
-        raise NotAuthorizedException("Session expired due to inactivity, please log in again")
-
-    session["last_seen"] = now
 
 
 auth_router = Router(path="/", route_handlers=[login, callback, logout])
