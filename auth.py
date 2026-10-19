@@ -72,9 +72,17 @@ async def _user_in_ldap_group(connection: ASGIConnection, group: str) -> None:
 
 
 def require_ldap_group(group: str):
-    """Build a Litestar guard requiring membership in the given unix group."""
+    """
+    Build a Litestar guard requiring membership in the given unix group.
+    Passes through for any logged-in user when the admin gate is disabled
+    (config.ldap.require_admin_group=False) — the admission routes use this
+    factory with the admin group, and there is no runtime route that uses it
+    with the user group.
+    """
 
     async def guard(connection: ASGIConnection, _: BaseRouteHandler) -> None:
+        if not config.ldap.require_admin_group:
+            return
         await _user_in_ldap_group(connection, group)
 
     return guard
@@ -88,7 +96,8 @@ async def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None
     - a logged-in user is present in the session
     - the session hasn't exceeded config.session.max_age_seconds since login
     - the session hasn't been idle longer than config.session.idle_timeout_seconds
-    - the user is a member of the required NERSC unix group (config.ldap.user_group)
+    - the user is a member of the required NERSC unix group
+      (config.ldap.user_group), unless config.ldap.require_user_group is False
 
     On success, refreshes the idle clock.
     """
@@ -112,7 +121,8 @@ async def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None
 
     session["last_seen"] = now
 
-    await _user_in_ldap_group(connection, config.ldap.user_group)
+    if config.ldap.require_user_group:
+        await _user_in_ldap_group(connection, config.ldap.user_group)
 
 
 @get("/auth/login")
@@ -203,14 +213,22 @@ def session_user_context(request: Any) -> dict:
     Returns an empty dict if there's no logged-in user, so it can be
     unconditionally merged into any Template context.
 
-    `is_admin` is a live LDAP admin-group membership check (backed by the
-    short in-process cache), NOT a session attribute — group grants/revocations
-    take effect within LDAP_CACHE_TTL_SECONDS without re-login. It is UI
-    hint only; actual authorization is enforced by the guards.
+    `is_admin` reflects the same policy as the admin guard: membership of
+    config.ldap.admin_group via a live LDAP check (backed by the short
+    in-process cache), or unconditionally True when
+    config.ldap.require_admin_group is False. It is NOT a session attribute —
+    group grants/revocations take effect within LDAP_CACHE_TTL_SECONDS without
+    re-login. It is a UI hint only; actual authorization is enforced by the
+    guards.
     """
     user = request.session.get("user")
     if not user or not user.get("username"):
         return {"auth_user": None, "is_admin": False}
+    if not config.ldap.require_admin_group:
+        # Gate disabled: every authenticated user passes the admin guard, so
+        # the UI must match or the admission link would hide while the page
+        # is actually open.
+        return {"auth_user": user, "is_admin": True}
     try:
         groups = _ldap_authorizer.groups_for_user(user["username"])
     except LDAPAuthorizationError:

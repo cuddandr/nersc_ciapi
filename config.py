@@ -131,6 +131,8 @@ class LDAPConfig:
     search_base: str
     user_group: str
     admin_group: str
+    require_user_group: bool
+    require_admin_group: bool
     connect_timeout_seconds: float
     read_timeout_seconds: float
     cache_ttl_seconds: float
@@ -204,6 +206,8 @@ class Config:
             ),
             user_group=os.getenv("LDAP_USER_GROUP", ""),
             admin_group=os.getenv("LDAP_ADMIN_GROUP", ""),
+            require_user_group=_getenv_bool("LDAP_REQUIRE_USER_GROUP", True),
+            require_admin_group=_getenv_bool("LDAP_REQUIRE_ADMIN_GROUP", True),
             connect_timeout_seconds=float(
                 os.getenv("LDAP_CONNECT_TIMEOUT_SECONDS", "5")
             ),
@@ -279,16 +283,35 @@ class Config:
 
         # An unset group name must be a startup error rather than an open
         # gate: every guard below fails closed on LDAP errors, but an empty
-        # group string would make the membership check meaningless.
-        if not self.ldap.user_group:
+        # group string would make the membership check meaningless. The
+        # LDAP_REQUIRE_*_GROUP=False escape hatch (for staging/testing before
+        # the groups are provisioned) suppresses both the gate and this check,
+        # loudly.
+        if self.ldap.require_user_group and not self.ldap.user_group:
             errors.append(
                 "LDAP_USER_GROUP is not set; Globus-authenticated paths "
-                "would have no unix-group gate."
+                "would have no unix-group gate. Set LDAP_USER_GROUP or "
+                "disable the gate with LDAP_REQUIRE_USER_GROUP=false."
             )
-        if not self.ldap.admin_group:
+        if self.ldap.require_admin_group and not self.ldap.admin_group:
             errors.append(
                 "LDAP_ADMIN_GROUP is not set; the admission configuration "
-                "endpoints would have no admin unix-group gate."
+                "endpoints would have no admin unix-group gate. Set "
+                "LDAP_ADMIN_GROUP or disable the gate with "
+                "LDAP_REQUIRE_ADMIN_GROUP=false."
+            )
+
+        if not self.ldap.require_user_group:
+            logging.warning(
+                "LDAP_REQUIRE_USER_GROUP=false: the unix-group gate on all "
+                "authenticated paths is DISABLED — any Globus-authenticated "
+                "user passes."
+            )
+        if not self.ldap.require_admin_group:
+            logging.warning(
+                "LDAP_REQUIRE_ADMIN_GROUP=false: the admin unix-group gate "
+                "on the admission configuration endpoints is DISABLED — any "
+                "Globus-authenticated user can view/edit the admission config."
             )
 
         if errors:
