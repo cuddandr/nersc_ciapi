@@ -102,6 +102,12 @@ async def require_login(connection: ASGIConnection, _: BaseRouteHandler) -> None
     On success, refreshes the idle clock.
     """
     session = connection.session
+
+    if config.globus.disable_auth:
+        if not session.get("user"):
+            session["user"] = {"username": "dev-user"}
+        return
+
     user = session.get("user")
     authenticated_at = session.get("authenticated_at")
     last_seen = session.get("last_seen")

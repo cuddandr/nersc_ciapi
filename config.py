@@ -79,6 +79,7 @@ class MongoConfig:
 class GlobusConfig:
     """Globus Auth (OIDC) settings used by auth.py."""
 
+    disable_auth: bool
     client_id_file: str
     client_secret_file: str
     redirect_uri: str
@@ -167,6 +168,7 @@ class Config:
         globus_client_id_file = os.getenv("GLOBUS_CLIENT_ID_FILE", "")
         globus_client_secret_file = os.getenv("GLOBUS_CLIENT_SECRET_FILE", "")
         globus = GlobusConfig(
+            disable_auth=_getenv_bool("GLOBUS_DISABLE_AUTH", False),
             client_id_file=globus_client_id_file,
             client_secret_file=globus_client_secret_file,
             redirect_uri=os.getenv("GLOBUS_REDIRECT_URI", "https://localhost:8000/auth/callback"),
@@ -242,6 +244,12 @@ class Config:
             errors.append(
                 "SESSION_SECRET_FILE is not configured or unreadable. "
                 "Set SESSION_SECRET_FILE to a file containing a random 32+ byte secret."
+            )
+
+        if self.globus.disable_auth:
+            logging.warning(
+                "GLOBUS_DISABLE_AUTH is set; Globus authentication is disabled!"
+                "The web UI will be visable to anyone with the url."
             )
 
         # Globus login can't function without a client id/secret.
